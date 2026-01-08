@@ -1,0 +1,380 @@
+# carved
+
+a command and control framework written in go. the server runs on linux, the implant targets windows x64.
+
+## architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              SERVER (linux)                             │
+│  ┌───────────────┐  ┌──────────────┐  ┌────────────────┐               │
+│  │   Web Panel   │  │  REST API    │  │  HTTP Listener │               │
+│  │  (panel.go)   │  │ (router.go)  │  │   (http.go)    │               │
+│  └───────────────┘  └──────────────┘  └────────────────┘               │
+│          │                 │                  │                         │
+│          └─────────────────┼──────────────────┘                         │
+│                            │                                            │
+│                     ┌──────┴──────┐                                     │
+│                     │   SQLite    │                                     │
+│                     │  (db.go)    │                                     │
+│                     └─────────────┘                                     │
+└─────────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ HTTP/JSON
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          IMPLANT (windows x64)                          │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                        Transport Layer                           │   │
+│  │  - WinHTTP via manual API resolution                            │   │
+│  │  - Registration & beacon loop                                    │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                              │                                          │
+│  ┌───────────────────────────┴───────────────────────────────────┐     │
+│  │                       Task Registry                            │     │
+│  │  - Handler registration pattern                                │     │
+│  │  - JSON task serialization                                     │     │
+│  └────────────────────────────────────────────────────────────────┘     │
+│                              │                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                          Modules                                  │  │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐ ┌───────┐ │  │
+│  │  │  Loader  │ │Shellcode │ │  Creds   │ │  Chrome   │ │ Exec  │ │  │
+│  │  │  (BOF,   │ │(enclave, │ │(SAM/LSA, │ │(passwords,│ │(cmd,  │ │  │
+│  │  │  PE/DLL) │ │indirect, │ │ NTDS)    │ │ cookies)  │ │ psh)  │ │  │
+│  │  └──────────┘ │ runonce) │ └──────────┘ └───────────┘ └───────┘ │  │
+│  │               └──────────┘                                       │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ DLL Injection (reflective)
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         gobound.dll                                     │
+│  - Injected into Chrome process                                         │
+│  - Decrypts app-bound encryption key via IElevator COM interface        │
+│  - Communicates master key back via named pipe                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### components
+
+- **server**: linux binary hosting web panel, REST API, and C2 listener on configurable ports
+- **implant**: windows x64 executable that beacons to the server, executes tasks, returns results
+- **gobound.dll**: helper dll for chrome credential extraction (reflectively injected into chrome process to decrypt the app-bound encryption master key)
+
+## building
+
+requires go 1.24+ and mingw-w64 for cgo (gobound.dll build).
+
+```bash
+./build.sh
+```
+
+outputs:
+- `build/server` - linux team server
+- `build/implant.exe` - windows implant  
+- `build/payloads/gobound.dll` - chrome extraction dll
+
+on windows (uses `go1.24.11` for cross-compilation):
+```batch
+build.bat
+```
+
+## configuration
+
+edit `implant/cmd/main.go` before building to set:
+- server url (default: `http://127.0.0.1:8443/`)
+- sleep interval (default: 5 seconds)
+- jitter percentage (default: 10%)
+
+edit `server/pkg/web/panel.go` for web panel credentials:
+- default username: `carvedadmin`
+- default password: `carvedpassword123`
+
+## running
+
+start the server:
+```bash
+./build/server -port 9000 -listener 8443 -db carved.db
+```
+
+flags:
+- `-port` - API/web panel port (default: 9000)
+- `-listener` - C2 listener port (default: 8443)
+- `-db` - sqlite database path (default: carved.db)
+
+the server provides:
+- web panel on the API port (http://0.0.0.0:9000)
+- C2 listener on the listener port for implant communications
+- CLI interface for direct interaction
+
+## commands
+
+### filesystem
+- `shell <command>` - execute cmd.exe command
+- `powershell <command>` - execute powershell command
+- `cd <path>` - change directory
+- `pwd` - print working directory
+- `ls [path]` - list directory contents
+- `cat <file>` - read file contents
+- `upload <path>` - upload file to implant (select file in ui)
+- `download <path>` - download file from implant
+- `mkdir <path>` - create directory
+- `rm <path>` - remove file or directory
+
+### process
+- `ps` - list processes
+- `kill <pid>` - kill process by pid
+
+### info
+- `whoami` - current user info
+- `env` - environment variables
+
+### credentials
+- `hashdump` - dump sam hashes and lsa secrets (requires admin)
+- `lsasecrets` - dump lsa secrets only (requires admin)
+- `chrome` - extract chrome passwords, cookies, credit cards
+
+### evasion
+- `unhook` - unhook ntdll.dll (removes edr hooks by remapping clean ntdll from disk)
+
+### shellcode execution
+- `execute` - run shellcode with method selection:
+  - `enclave` - uses LdrCallEnclave via mscoree.dll RWX heap + vdsutil.dll allocation
+  - `indirect` - indirect syscalls with NtAllocateVirtualMemory + RtlCreateUserThread
+  - `once` - uses RtlRunOnceExecuteOnce (synchronous, do NOT use shellcode that calls ExitProcess)
+
+shellcode should not call ExitProcess or the implant will die.
+
+### module loading
+- `loaddll` - reflectively load dll into current process
+- `loadpe` - load and execute pe in memory (wipes PE headers, clears command line, hooks exit functions to ExitThread)
+- `injectdll` - reflectively inject dll into remote process by pid
+
+### bof execution
+- `bof` - execute beacon object file
+
+bof files go in `BOFs/` directory on the server. the loader supports cobalt strike compatible bofs with dynamic function resolution (DLL$Function syntax).
+
+## technical details
+
+### api resolution
+
+the implant uses manual api resolution via PEB walking and djb2 hash lookups. no static imports to suspicious apis. syscalls are resolved at runtime and called indirectly through ntdll gadgets using the go-wincall library.
+
+### transport
+
+http transport using WinHTTP apis resolved manually:
+- `WinHttpOpen`, `WinHttpConnect`, `WinHttpOpenRequest`
+- `WinHttpSendRequest`, `WinHttpReceiveResponse`, `WinHttpReadData`
+- supports http and https (via WINHTTP_FLAG_SECURE)
+
+### bof loader
+
+the coff loader implements:
+- x64 COFF parsing and section mapping
+- relocation processing (IMAGE_REL_AMD64_ADDR64, REL32, ADDR32NB)
+- dynamic import resolution via `DLL$Function` syntax
+- GOT/BSS allocation for external symbols
+- memory protection adjustment per section characteristics
+
+**beacon api implementation:**
+
+the bof loader uses `syscall.NewCallback` from Go's standard library to create Windows-callable function pointers for beacon apis. this was necessary because calling BOF code requires proper ABI translation between Go's calling convention and the Windows x64 ABI. rather than reimplementing the complex Go ABI -> OS ABI translation that `syscall.NewCallback` handles internally, we leverage it to create proper callback trampolines.
+
+supported beacon apis:
+- `BeaconOutput` - write output to buffer
+- `BeaconPrintf` - formatted output (supports %s, %d, %u, %x, %X, %p)
+- `BeaconDataParse` - initialize argument parser
+- `BeaconDataInt` - extract 32-bit integer
+- `BeaconDataShort` - extract 16-bit integer
+- `BeaconDataLength` - get remaining data length
+- `BeaconDataExtract` - extract length-prefixed binary data
+- `BeaconAddValue` / `BeaconGetValue` / `BeaconRemoveValue` - key-value store
+- `toWideChar` - convert ANSI to wide string
+
+argument packing format:
+- `b<hex>` - binary data
+- `i<int>` - 32-bit integer
+- `s<int>` - 16-bit short
+- `z<string>` - null-terminated string
+- `Z<string>` - null-terminated wide string
+
+### pe/dll loader
+
+reflective loader features:
+- section mapping with proper alignment
+- base relocation processing (type 3 and 10)
+- import resolution with api-set schema support
+- TLS callback execution
+- remote process injection via NtWriteVirtualMemory
+- DllMain invocation via shellcode stub
+
+pe loader additionally:
+- wipes PE headers after loading
+- clears command line from PEB
+- hooks exit functions (ExitProcess, exit, _exit, etc.) to ExitThread to prevent implant termination
+
+### credential extraction
+
+**sam/lsa dumping:**
+- admin only, will fail gracefully if not admin :3
+- direct NTFS parsing to read locked registry hives (SAM, SYSTEM, SECURITY)
+- bootkey extraction from SYSTEM hive
+- sam hash decryption (RC4/AES depending on version)
+- lsa secret decryption including cached domain credentials, service account passwords, DPAPI keys
+
+**chrome extraction:**
+- scans chrome processes for open file handles to Cookies, Login Data, Web Data
+- duplicates handles to read locked sqlite databases
+- injects gobound.dll into chrome process
+- gobound.dll uses Chrome's IElevator COM interface to decrypt the app-bound encryption key
+- master key returned via named pipe
+- decrypts v20 encrypted values using AES-GCM
+
+### shellcode execution methods
+
+**enclave method:**
+1. load mscoree.dll and vdsutil.dll
+2. get RWX heap from GetProcessExecutableHeap
+3. allocate via VdsHeapAlloc
+4. copy shellcode
+5. execute via LdrCallEnclave
+
+**indirect syscall method:**
+1. NtAllocateVirtualMemory (PAGE_READWRITE)
+2. copy shellcode
+3. NtProtectVirtualMemory (PAGE_EXECUTE_READ)
+4. RtlCreateUserThread
+
+**runonce method:**
+1. allocate and copy shellcode
+2. execute via RtlRunOnceExecuteOnce
+3. synchronous,blocks until completion
+
+## database schema
+
+sqlite database stores:
+- `implants` - registered implants with metadata
+- `tasks` - queued and completed tasks
+- `listeners` - configured listeners
+- `credentials` - extracted credentials
+
+## web panel
+
+single-page application with:
+- implant management (list, interact, clear)
+- task execution and output viewing
+- listener management
+- bof browser and execution
+- shellcode upload and execution with method selection
+- credential viewer
+- results filtering by type (hashdump, chrome, shell, bof)
+
+## dependencies
+
+- [go-wincall](https://github.com/carved4/go-wincall) - windows api calls via indirect syscalls and manual resolution
+- [go-chi/chi](https://github.com/go-chi/chi) - http router
+- [modernc.org/sqlite](https://modernc.org/sqlite) - pure go sqlite driver
+- [go-ese](https://github.com/Velocidex/go-ese) - ESE database parsing for NTDS.dit
+
+## limitations
+
+- http only (https should work if you configure tls in the listener code but untested)
+- implant is windows x64 only
+- server is linux only (or windows with go1.24.11 for cross-compilation)
+- no persistence mechanisms built in
+- chrome extraction requires chrome to be running with the target databases open
+- hashdump/lsasecrets requires running as admin/system
+- bofs that crash usually have unhandled edge cases in argument parsing
+
+## notes
+
+- the web panel uses session cookies with 24 hour expiry
+- task results are base64 encoded in the API responses
+- the server CLI and web panel can be used simultaneously
+- implant generates a new UUID on each execution (no persistence)
+- BOFs are served from the `BOFs/` directory relative to server working directory
+- payloads (like gobound.dll) are served from the `payloads/` directory
+
+## contributing
+
+contributions are welcome :3
+
+feel free to open issues, submit pull requests, or just fork and do whatever you want with it. this project is meant for educational purposes and security research. if you add something cool, share it back!
+
+some areas that could use love:
+- https listener support
+- additional evasion techniques
+- more beacon api implementations
+- evasion stuffs 
+- persistence modules
+
+## project structure
+
+```
+carved/
+├── build.sh                    # linux build script
+├── build.bat                   # windows build script
+├── go.mod
+├── shared/
+│   └── proto/
+│       └── types.go            # shared types between server and implant
+├── server/
+│   ├── cmd/
+│   │   └── main.go             # server entrypoint + CLI
+│   └── pkg/
+│       ├── api/
+│       │   ├── router.go       # REST API routes
+│       │   └── types.go        # API request/response types
+│       ├── db/
+│       │   ├── db.go           # sqlite operations
+│       │   └── models.go       # database models
+│       ├── listeners/
+│       │   └── http.go         # C2 listener implementation
+│       └── web/
+│           └── panel.go        # embedded web panel HTML/JS/CSS
+├── implant/
+│   ├── cmd/
+│   │   ├── main.go             # implant entrypoint
+│   │   └── bof_test/
+│   │       └── main.go         # standalone BOF tester
+│   └── pkg/
+│       ├── tasks/
+│       │   ├── handlers.go     # task handler implementations
+│       │   ├── registry.go     # handler registration
+│       │   └── types.go        # task types
+│       ├── transport/
+│       │   ├── http.go         # WinHTTP transport
+│       │   └── types.go        # transport interfaces
+│       └── modules/
+│           ├── loader/
+│           │   ├── coff.go         # BOF/COFF loader
+│           │   ├── coff_args.go    # BOF argument packing
+│           │   ├── beacon_api.go   # beacon API callbacks (uses syscall.NewCallback)
+│           │   ├── loader.go       # remote DLL injection
+│           │   ├── pe-loader.go    # local PE/DLL loading
+│           │   └── meltloader.go   # PE loading with cleanup
+│           ├── shellcode/
+│           │   └── shellcode.go    # shellcode execution methods
+│           ├── exec/
+│           │   └── exec.go         # command execution
+│           ├── chrome/
+│           │   └── chrome.go       # chrome credential extraction
+│           └── creds/
+│               ├── creds.go        # main dump functions
+│               ├── sam.go          # SAM parsing
+│               ├── lsa.go          # LSA secret parsing
+│               ├── ntds.go         # NTDS.dit parsing
+│               ├── ntfs.go         # raw NTFS reading
+│               ├── registry.go     # registry hive parsing
+│               ├── crypto.go       # decryption routines
+│               ├── token.go        # token operations
+│               ├── windows.go      # windows API wrappers
+│               └── types.go        # credential types
+└── gobound/
+    └── dll/
+        ├── main.go             # chrome key decryption DLL
+        └── types.go            # COM/Windows types
+```
