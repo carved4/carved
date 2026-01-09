@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -72,6 +73,9 @@ func (s *Server) setupRoutes() {
 		r.Post("/listeners/{id}/stop", s.stopListener)
 
 		r.Get("/credentials", s.getCredentials)
+
+		r.Get("/screenshots", s.getScreenshots)
+		r.Get("/screenshots/{id}", s.getScreenshot)
 
 		r.Get("/bofs", s.listBOFs)
 		r.Get("/bofs/{filename}", s.getBOF)
@@ -334,6 +338,39 @@ func (s *Server) getCredentials(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, creds)
 }
 
+func (s *Server) getScreenshots(w http.ResponseWriter, r *http.Request) {
+	loot, err := db.GetAllLoot()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var screenshots []*db.Loot
+	for _, l := range loot {
+		if l.Type == db.LootScreenshot {
+			screenshots = append(screenshots, l)
+		}
+	}
+	respondJSON(w, screenshots)
+}
+
+func (s *Server) getScreenshot(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	loot, err := db.GetLoot(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "screenshot not found")
+		return
+	}
+	if loot.Type != db.LootScreenshot {
+		respondError(w, http.StatusNotFound, "not a screenshot")
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(loot.Data)))
+	w.Write(loot.Data)
+}
+
 func (s *Server) listBOFs(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir("BOFs")
 	if err != nil {
@@ -356,8 +393,8 @@ func (s *Server) listBOFs(w http.ResponseWriter, r *http.Request) {
 			size = info.Size()
 		}
 		bofList = append(bofList, map[string]interface{}{
-			"name": name,
-			"size": size,
+			"name":	name,
+			"size":	size,
 		})
 	}
 	respondJSON(w, bofList)
@@ -379,9 +416,9 @@ func (s *Server) getBOF(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, map[string]interface{}{
-		"name": filename,
-		"data": base64.StdEncoding.EncodeToString(data),
-		"size": len(data),
+		"name":	filename,
+		"data":	base64.StdEncoding.EncodeToString(data),
+		"size":	len(data),
 	})
 }
 
