@@ -1,0 +1,22 @@
+[package]
+name = "stager"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+path = "stager_build.rs"
+
+[[bin]]
+name = "stager"
+path = "stager_build.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[dependencies]
+

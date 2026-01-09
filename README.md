@@ -1,79 +1,133 @@
 # carved
 
-a command and control framework written in go. the server runs on linux, the implant targets windows x64.
+a command and control framework written in go. the server runs on linux/windows, the implant targets windows x64.
 
 ## architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                           SERVER (linux)                             │
-│  ┌───────────────┐  ┌──────────────┐  ┌────────────────┐             │
-│  │   Web Panel   │  │   REST API   │  │  HTTP Listener │             │
-│  │  (panel.go)   │  │  (router.go) │  │   (http.go)    │             │
-│  └───────────────┘  └──────────────┘  └────────────────┘             │
-│          │                 │                  │                      │
-│          └─────────────────┼──────────────────┘                      │
-│                            │                                         │
-│                     ┌──────┴──────┐                                  │
-│                     │   SQLite    │                                  │
-│                     │   (db.go)   │                                  │
-│                     └─────────────┘                                  │
-└──────────────────────────────────────────────────────────────────────┘
-                             │
-                             │ HTTP/JSON
-                             ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                        IMPLANT (windows x64)                         │
-│  ┌────────────────────────────────────────────────────────────────┐  │
-│  │                       Transport Layer                          │  │
-│  │  - WinHTTP via manual API resolution                           │  │
-│  │  - Registration & beacon loop                                  │  │
-│  └────────────────────────────────────────────────────────────────┘  │
-│                             │                                        │
-│  ┌──────────────────────────┴─────────────────────────────────────┐  │
-│  │                       Task Registry                            │  │
-│  │  - Handler registration pattern                                │  │
-│  │  - JSON task serialization                                     │  │
-│  └────────────────────────────────────────────────────────────────┘  │
-│                             │                                        │
-│  ┌────────────────────────────────────────────────────────────────┐  │
-│  │                          Modules                               │  │
-│  │  ┌────────┐ ┌──────────┐ ┌────────┐ ┌─────────┐ ┌───────────┐  │  │
-│  │  │ Loader │ │Shellcode │ │ Creds  │ │ Chrome  │ │   Exec    │  │  │
-│  │  │ (BOF,  │ │(enclave, │ │(SAM/   │ │(cookies,│ │ (cmd/psh) │  │  │
-│  │  │PE/DLL) │ │indirect) │ │ LSA)   │ │ creds)  │ │           │  │  │
-│  │  └────────┘ └──────────┘ └────────┘ └─────────┘ └───────────┘  │  │
-│  └────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────┘
-                             │
-                             │ DLL Injection (reflective)
-                             ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                          gobound.dll                                 │
-│  - Injected into Chrome process                                      │
-│  - Decrypts app-bound encryption key via IElevator COM interface     │
-│  - Communicates master key back via named pipe                       │
-└──────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                            SERVER (linux/windows)                               │
+│                                                                                 │
+│  ┌───────────────┐  ┌──────────────┐  ┌────────────────┐  ┌─────────────────┐   │
+│  │   Web Panel   │  │   REST API   │  │  HTTP Listener │  │ Payload Server  │   │
+│  │  (panel.go)   │  │  (router.go) │  │   (http.go)    │  │  /implant       │   │
+│  │               │  │              │  │                │  │  /payloads/*    │   │
+│  │ - Random auth │  │ - Tasks      │  │ - Checkins     │  │                 │   │
+│  │ - BOF browser │  │ - Implants   │  │ - Task results │  │ - Serves        │   │
+│  │ - Shellcode   │  │ - Creds      │  │ - Registration │  │   implant.exe   │   │
+│  │ - Credentials │  │ - Listeners  │  │                │  │   gobound.dll   │   │
+│  └───────────────┘  └──────────────┘  └────────────────┘  └─────────────────┘   │
+│          │                 │                  │                   │             │
+│          └─────────────────┴──────────────────┴───────────────────┘             │
+│                                       │                                         │
+│                                ┌──────┴──────┐                                  │
+│                                │   SQLite    │                                  │
+│                                │   (db.go)   │                                  │
+│                                └─────────────┘                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                        │
+           ┌────────────────────────────┼────────────────────────────┐
+           │                            │                            │
+           ▼                            ▼                            ▼
+┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────────┐
+│      STAGERS        │    │                     │    │      BOFs/ Directory    │
+│                     │    │                     │    │                         │
+│ stager_c.exe   10KB │    │                     │    │  - Cobalt Strike        │
+│ stager_zig.exe 10KB │    │                     │    │    compatible BOFs      │
+│ stager_nim.exe 137KB│    │                     │    │  - TrustedSec SA-BOF    │
+│ stager_rust.exe 21KB│    │                     │    │  - Custom BOFs          │
+│                     │    │                     │    │                         │
+│ - WinHTTP download  │    │                     │    │                         │
+│ - In-memory PE map  │    │                     │    │                         │
+│ - NT API execution  │    │                     │    │                         │
+│ - No console window │    │                     │    │                         │
+└─────────────────────┘    │                     │    └─────────────────────────┘
+           │               │                     │                  │
+           │ Downloads     │                     │                  │
+           │ /implant      │                     │                  │
+           ▼               │                     │                  │
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                           IMPLANT (windows x64)                                  │
+│                                                                                  │
+│  ┌────────────────────────────────────────────────────────────────────────────┐  │
+│  │                          Transport Layer                                   │  │
+│  │  - WinHTTP via manual API resolution (no static imports)                   │  │
+│  │  - Registration & beacon loop with configurable sleep/jitter               │  │
+│  └────────────────────────────────────────────────────────────────────────────┘  │
+│                                      │                                           │
+│  ┌───────────────────────────────────┴────────────────────────────────────────┐  │
+│  │                          Task Registry                                     │  │
+│  │  - Handler registration pattern                                            │  │
+│  │  - JSON task serialization                                                 │  │
+│  └────────────────────────────────────────────────────────────────────────────┘  │
+│                                      │                                           │
+│  ┌────────────────────────────────────────────────────────────────────────────┐  │
+│  │                             Modules                                        │  │
+│  │                                                                            │  │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │  │
+│  │  │    Loader    │  │  Shellcode   │  │    Creds     │  │    Chrome    │    │  │
+│  │  │              │  │              │  │              │  │              │    │  │
+│  │  │ - BOF/COFF   │  │ - Enclave    │  │ - SAM dump   │  │ - Cookies    │    │  │
+│  │  │ - PE loader  │  │ - Indirect   │  │ - LSA secrets│  │ - Passwords  │    │  │
+│  │  │ - DLL inject │  │ - RunOnce    │  │ - NTDS.dit   │  │ - Credit cards│   │  │
+│  │  │ - Reflective │  │              │  │              │  │ - App-bound  │    │  │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘    │  │
+│  │                                                                            │  │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                      │  │
+│  │  │     Exec     │  │   Evasion    │  │  Filesystem  │                      │  │
+│  │  │              │  │              │  │              │                      │  │
+│  │  │ - cmd.exe    │  │ - Unhook     │  │ - ls/cd/pwd  │                      │  │
+│  │  │ - PowerShell │  │   ntdll.dll  │  │ - cat/mkdir  │                      │  │
+│  │  │ - Process    │  │ - Indirect   │  │ - upload     │                      │  │
+│  │  │   listing    │  │   syscalls   │  │ - download   │                      │  │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘                      │  │
+│  └────────────────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                                       │ DLL Injection (reflective)
+                                       ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                               gobound.dll                                        │
+│                                                                                  │
+│  - Reflectively injected into Chrome process                                     │
+│  - Decrypts app-bound encryption key via IElevator COM interface                 │
+│  - Communicates master key back to implant via named pipe                        │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### components
 
-- **server**: linux binary hosting web panel, REST API, and C2 listener on configurable ports
+- **server**: linux/windows binary hosting web panel, REST API, and C2 listener on configurable ports
 - **implant**: windows x64 executable that beacons to the server, executes tasks, returns results
+- **stagers**: tiny windows loaders that download and execute the implant in-memory using NT APIs (available in C, Zig, Nim, and Rust)
 - **gobound.dll**: helper dll for chrome credential extraction (reflectively injected into chrome process to decrypt the app-bound encryption master key)
 
 ## building
 
-requires go 1.24+ and mingw-w64 for cgo (gobound.dll build).
+requires:
+- go 1.24+ and mingw-w64 for cgo (gobound.dll and C stager)
+- zig 0.15+ for Zig stager
+- nim 2.0+ with winim package for Nim stager (`nimble install winim`)
+- rust with x86_64-pc-windows-gnu target for Rust stager (`rustup target add x86_64-pc-windows-gnu`)
 
 ```bash
 ./build.sh
 ```
 
+the build script will prompt for stager configuration:
+- **C2 server IP** - where the stager will download the implant from (default: 127.0.0.1)
+- **C2 listener port** - the listener port (default: 8443)
+
 outputs:
 - `build/server` - linux team server
+- `build/server.exe` - windows team server
 - `build/implant.exe` - windows implant  
+- `build/stager_c.exe` - C stager (~10KB)
+- `build/stager_zig.exe` - Zig stager (~10KB)
+- `build/stager_nim.exe` - Nim stager (~137KB)
+- `build/stager_rust.exe` - Rust stager (~21KB)
 - `build/payloads/gobound.dll` - chrome extraction dll
+- `build/payloads/implant.exe` - implant served by the `/implant` endpoint
 
 on windows (uses `go1.24.11` for cross-compilation):
 ```batch
@@ -87,9 +141,7 @@ edit `implant/cmd/main.go` before building to set:
 - sleep interval (default: 5 seconds)
 - jitter percentage (default: 10%)
 
-edit `server/pkg/web/panel.go` for web panel credentials:
-- default username: `carvedadmin`
-- default password: `carvedpassword123`
+web panel credentials are **randomly generated** on each server start and printed to the console.
 
 ## deployment
 
@@ -228,6 +280,25 @@ argument packing format:
 - `z<string>` - null-terminated string
 - `Z<string>` - null-terminated wide string
 
+### stagers
+
+the stagers are tiny stage1 loaders available in multiple languages (C, Zig, Nim, Rust) that all:
+1. download `implant.exe` from the `/implant` endpoint using WinHTTP
+2. map the PE into memory manually (parse headers, copy sections, process relocations, resolve imports)
+3. set proper memory protections per section
+4. execute the entry point via `NtCreateThreadEx`
+
+all memory operations use NT APIs (`NtAllocateVirtualMemory`, `NtProtectVirtualMemory`) for evasion. the stagers have no console window and minimal imports.
+
+| stager | size | notes |
+|--------|------|-------|
+| stager_c.exe | ~10KB | smallest, mingw-w64 compiled |
+| stager_zig.exe | ~10KB | comparable to C, no runtime |
+| stager_nim.exe | ~137KB | larger due to nim runtime |
+| stager_rust.exe | ~21KB | no_std, minimal runtime |
+
+all stagers are functionally identical - choose based on your opsec requirements or toolchain preferences.
+
 ### pe/dll loader
 
 reflective loader features:
@@ -323,11 +394,13 @@ single-page application with:
 ## notes
 
 - the web panel uses session cookies with 24 hour expiry
+- web panel credentials are randomly generated on each server start (check console output)
 - task results are base64 encoded in the API responses
 - the server CLI and web panel can be used simultaneously
 - implant generates a new UUID on each execution (no persistence)
 - BOFs are served from the `BOFs/` directory relative to server working directory
-- payloads (like gobound.dll) are served from the `payloads/` directory
+- payloads (like gobound.dll and implant.exe) are served from the `payloads/` directory
+- the `/implant` endpoint serves `payloads/implant.exe` for the stager
 
 ## contributing
 
@@ -346,8 +419,16 @@ some areas that could use love:
 
 ```
 carved/
-├── build.sh                    # linux build script
+├── build.sh                    # linux/mac build script
 ├── build.bat                   # windows build script
+├── stager/
+│   ├── stager.c                # C stager source
+│   ├── stager.zig              # Zig stager source
+│   ├── stager.nim              # Nim stager source
+│   ├── stager.rs               # Rust stager source
+│   ├── build.zig               # Zig build configuration
+│   ├── Cargo.toml              # Rust build configuration
+│   └── build.sh                # standalone stager build script (C only)
 ├── go.mod
 ├── shared/
 │   └── proto/

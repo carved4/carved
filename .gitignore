@@ -1,0 +1,42 @@
+# Build outputs
+build/server
+build/server.exe
+build/implant.exe
+build/stager*.exe
+build/payloads/
+build/uploads/
+build/*.db
+
+# Zig
+.zig-cache/
+zig-out/
+stager/.zig-cache/
+
+# Rust
+stager/target/
+stager/Cargo.lock
+
+# Nim
+nimcache/
+stager/stager_build.nim
+
+# C build artifacts
+stager/stager_build.c
+*.o
+!build/BOFs/*.o
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+

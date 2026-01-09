@@ -8,10 +8,25 @@ import (
 	"time"
 )
 
-const (
-	DefaultUsername	= "carvedadmin"
-	DefaultPassword	= "carvedpassword123"
+var (
+	DefaultUsername string
+	DefaultPassword string
 )
+
+func init() {
+	DefaultUsername = generateRandomString(8)
+	DefaultPassword = generateRandomString(16)
+}
+
+func generateRandomString(length int) string {
+	b := make([]byte, length)
+	rand.Read(b)
+	return hex.EncodeToString(b)[:length]
+}
+
+func GetCredentials() (string, string) {
+	return DefaultUsername, DefaultPassword
+}
 
 var (
 	sessions	= make(map[string]time.Time)

@@ -9,37 +9,37 @@ import (
 )
 
 var (
-	bofOutput	struct {
+	bofOutput struct {
 		sync.Mutex
-		buf	[]byte
-		len	int
+		buf []byte
+		len int
 	}
 
-	keyStore	= make(map[string]uintptr)
-	keyStoreLock	sync.Mutex
+	keyStore     = make(map[string]uintptr)
+	keyStoreLock sync.Mutex
 
-	emptyStringBuf	= []byte{0, 0, 0, 0}
+	emptyStringBuf = []byte{0, 0, 0, 0}
 
-	callbacksOnce		sync.Once
-	beaconOutputCb		uintptr
-	beaconPrintfCb		uintptr
-	beaconDataParseCb	uintptr
-	beaconDataIntCb		uintptr
-	beaconDataShortCb	uintptr
-	beaconDataLengthCb	uintptr
-	beaconDataExtractCb	uintptr
-	beaconAddValueCb	uintptr
-	beaconGetValueCb	uintptr
-	beaconRemoveValueCb	uintptr
-	toWideCharCb		uintptr
-	genericStubCb		uintptr
+	callbacksOnce       sync.Once
+	beaconOutputCb      uintptr
+	beaconPrintfCb      uintptr
+	beaconDataParseCb   uintptr
+	beaconDataIntCb     uintptr
+	beaconDataShortCb   uintptr
+	beaconDataLengthCb  uintptr
+	beaconDataExtractCb uintptr
+	beaconAddValueCb    uintptr
+	beaconGetValueCb    uintptr
+	beaconRemoveValueCb uintptr
+	toWideCharCb        uintptr
+	genericStubCb       uintptr
 )
 
 type datap struct {
-	original	uintptr
-	buffer		uintptr
-	length		uint32
-	size		uint32
+	original uintptr
+	buffer   uintptr
+	length   uint32
+	size     uint32
 }
 
 func initCallbacks() {
@@ -153,13 +153,67 @@ func processFormatString(format string, args []uintptr) string {
 
 	for i < len(format) {
 		if format[i] == '%' && i+1 < len(format) {
+			if format[i+1] == 'l' && i+2 < len(format) && (format[i+2] == 's' || format[i+2] == 'S') {
+				if argIdx < len(args) {
+					result += readWString(args[argIdx])
+					argIdx++
+				}
+				i += 3
+				continue
+			}
+			if format[i+1] == 'S' {
+				if argIdx < len(args) {
+					result += readWString(args[argIdx])
+					argIdx++
+				}
+				i += 2
+				continue
+			}
+			if format[i+1] == 'w' && i+2 < len(format) && format[i+2] == 's' {
+				if argIdx < len(args) {
+					result += readWString(args[argIdx])
+					argIdx++
+				}
+				i += 3
+				continue
+			}
+			if format[i+1] == 'l' && i+2 < len(format) {
+				switch format[i+2] {
+				case 'd', 'i':
+					if argIdx < len(args) {
+						result += fmt.Sprintf("%d", int64(args[argIdx]))
+						argIdx++
+					}
+					i += 3
+					continue
+				case 'u':
+					if argIdx < len(args) {
+						result += fmt.Sprintf("%d", uint64(args[argIdx]))
+						argIdx++
+					}
+					i += 3
+					continue
+				case 'x':
+					if argIdx < len(args) {
+						result += fmt.Sprintf("%x", args[argIdx])
+						argIdx++
+					}
+					i += 3
+					continue
+				case 'X':
+					if argIdx < len(args) {
+						result += fmt.Sprintf("%X", args[argIdx])
+						argIdx++
+					}
+					i += 3
+					continue
+				}
+			}
 			spec := format[i+1]
 			switch spec {
 			case 's':
 				if argIdx < len(args) {
-
 					s := readCString(args[argIdx])
-
 					if len(s) < 5 {
 						ws := readWString(args[argIdx])
 						if len(ws) > len(s) {
@@ -203,8 +257,57 @@ func processFormatString(format string, args []uintptr) string {
 			case '%':
 				result += "%"
 				i += 2
+			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '+', ' ', '#':
+				j := i + 1
+				for j < len(format) && (format[j] >= '0' && format[j] <= '9' || format[j] == '-' || format[j] == '+' || format[j] == ' ' || format[j] == '#' || format[j] == '.') {
+					j++
+				}
+				if j < len(format) {
+					finalSpec := format[j]
+					switch finalSpec {
+					case 's':
+						if argIdx < len(args) {
+							result += readCString(args[argIdx])
+							argIdx++
+						}
+					case 'S':
+						if argIdx < len(args) {
+							result += readWString(args[argIdx])
+							argIdx++
+						}
+					case 'd', 'i':
+						if argIdx < len(args) {
+							result += fmt.Sprintf("%d", int32(args[argIdx]))
+							argIdx++
+						}
+					case 'u':
+						if argIdx < len(args) {
+							result += fmt.Sprintf("%d", uint32(args[argIdx]))
+							argIdx++
+						}
+					case 'x':
+						if argIdx < len(args) {
+							result += fmt.Sprintf("%x", args[argIdx])
+							argIdx++
+						}
+					case 'X':
+						if argIdx < len(args) {
+							result += fmt.Sprintf("%X", args[argIdx])
+							argIdx++
+						}
+					default:
+						if argIdx < len(args) {
+							result += fmt.Sprintf("%v", args[argIdx])
+							argIdx++
+						}
+					}
+					i = j + 1
+				} else {
+					result += string(format[i])
+					i++
+				}
 			default:
-
+				// Unknown specifier, skip it but consume an arg
 				if argIdx < len(args) {
 					result += fmt.Sprintf("%v", args[argIdx])
 					argIdx++
@@ -591,4 +694,3 @@ func packWideStringArg(s string) ([]byte, error) {
 	result = append(result, buf...)
 	return result, nil
 }
-

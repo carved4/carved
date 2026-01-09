@@ -14,6 +14,7 @@ import (
 	"github.com/carved4/carved/server/pkg/api"
 	"github.com/carved4/carved/server/pkg/db"
 	"github.com/carved4/carved/server/pkg/listeners"
+	"github.com/carved4/carved/server/pkg/web"
 	"github.com/carved4/carved/shared/proto"
 )
 
@@ -66,13 +67,16 @@ func main() {
 		}
 	}()
 
+	username, password := web.GetCredentials()
+	
 	fmt.Println("[+] Server started successfully")
 	fmt.Println("")
 	fmt.Printf("    Web Panel: http://0.0.0.0%s\n", apiAddr)
 	fmt.Printf("    API:       http://0.0.0.0%s/api\n", apiAddr)
+	fmt.Printf("    C2:        http://0.0.0.0:%d\n", *listenerPort)
 	fmt.Println("")
-	fmt.Println("    Access via your public IP or hostname on port", *apiPort)
-	fmt.Println("    Default login: carvedadmin / carvedpassword123")
+	fmt.Println("    Access via your public IP or hostname")
+	fmt.Printf("    Login: %s / %s\n", username, password)
 	fmt.Println("")
 
 	go func() {

