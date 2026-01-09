@@ -295,7 +295,7 @@ all memory operations use NT APIs (`NtAllocateVirtualMemory`, `NtProtectVirtualM
 | stager_c.exe | ~10KB | smallest, mingw-w64 compiled |
 | stager_zig.exe | ~10KB | comparable to C, no runtime |
 | stager_nim.exe | ~137KB | larger due to nim runtime |
-| stager_rust.exe | ~21KB | no_std, minimal runtime |
+| stager_rust.exe | ~247KB | includes rust std library |
 
 all stagers are functionally identical - choose based on your opsec requirements or toolchain preferences.
 

