@@ -189,8 +189,44 @@ const (
 	fileNameInfo		= 9
 )
 
+type securityAttributes struct {
+	nLength              uint32
+	lpSecurityDescriptor uintptr
+	bInheritHandle       int32
+}
+
 func createPipeServer() uintptr {
 	pipeNamePtr, _ := wc.UTF16ptr(pipeName)
+
+	advapi32 := wc.LoadLibraryLdr("advapi32.dll")
+	convertStringSdToSd := wc.GetFunctionAddress(advapi32, wc.GetHash("ConvertStringSecurityDescriptorToSecurityDescriptorW"))
+	localFree := wc.GetFunctionAddress(k32base, wc.GetHash("LocalFree"))
+
+	// SDDL that allows Everyone (including medium integrity) full access to the pipe
+	// D:(A;;GA;;;WD) = DACL: Allow Generic All to Everyone (World)
+	sddl, _ := wc.UTF16ptr("D:(A;;GA;;;WD)")
+	var pSD uintptr
+
+	ret, _, _ := wc.CallG0(convertStringSdToSd,
+		uintptr(unsafe.Pointer(sddl)),
+		uintptr(1), // SDDL_REVISION_1
+		uintptr(unsafe.Pointer(&pSD)),
+		uintptr(0),
+	)
+
+	var sa *securityAttributes
+	if ret != 0 && pSD != 0 {
+		sa = &securityAttributes{
+			nLength:              uint32(unsafe.Sizeof(securityAttributes{})),
+			lpSecurityDescriptor: pSD,
+			bInheritHandle:       0,
+		}
+	}
+
+	var saPtr uintptr
+	if sa != nil {
+		saPtr = uintptr(unsafe.Pointer(sa))
+	}
 
 	hPipe, _, _ := wc.CallG0(createNamedPipeW,
 		uintptr(unsafe.Pointer(pipeNamePtr)),
@@ -200,8 +236,13 @@ func createPipeServer() uintptr {
 		uintptr(4096),
 		uintptr(4096),
 		uintptr(0),
-		uintptr(0),
+		saPtr,
 	)
+
+	if pSD != 0 {
+		wc.CallG0(localFree, pSD)
+	}
+
 	return hPipe
 }
 

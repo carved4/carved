@@ -60,13 +60,8 @@ func (m *Manager) Start(l *db.Listener) error {
 	}
 
 	go func() {
-		var err error
-		if l.Type == proto.ListenerHTTPS {
-
-			err = hl.server.ListenAndServe()
-		} else {
-			err = hl.server.ListenAndServe()
-		}
+		// TODO: HTTPS support - ListenAndServeTLS with cert/key paths
+		err := hl.server.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
 			fmt.Printf("[!] Listener %s error: %v\n", l.Name, err)
 		}

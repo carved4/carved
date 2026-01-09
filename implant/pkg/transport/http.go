@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math/rand"
 	"time"
 	"unsafe"
@@ -239,19 +238,5 @@ func Download(url string) ([]byte, error) {
 
 func (t *HTTPTransport) Close() error {
 	return nil
-}
-
-type responseReader struct {
-	data	[]byte
-	offset	int
-}
-
-func (r *responseReader) Read(p []byte) (n int, err error) {
-	if r.offset >= len(r.data) {
-		return 0, io.EOF
-	}
-	n = copy(p, r.data[r.offset:])
-	r.offset += n
-	return n, nil
 }
 

