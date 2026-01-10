@@ -1,6 +1,6 @@
 # carved
 
-a command and control framework written in go. the server runs on linux/windows, the implant targets windows x64.
+a command and control framework written in go. features AES-256-GCM encrypted communications, indirect syscalls, and in-memory execution. the server runs on linux/windows, the implant targets windows x64.
 
 ## architecture
 
@@ -15,7 +15,7 @@ a command and control framework written in go. the server runs on linux/windows,
 │  │ - Random auth │  │ - Tasks      │  │ - Checkins     │  │                 │   │
 │  │ - BOF browser │  │ - Implants   │  │ - Task results │  │ - Serves        │   │
 │  │ - Shellcode   │  │ - Creds      │  │ - Registration │  │   implant.exe   │   │
-│  │ - Credentials │  │ - Listeners  │  │                │  │   gobound.dll   │   │
+│  │ - Credentials │  │ - Listeners  │  │ (AES-256-GCM)  │  │   gobound.dll   │   │
 │  └───────────────┘  └──────────────┘  └────────────────┘  └─────────────────┘   │
 │          │                 │                  │                   │             │
 │          └─────────────────┴──────────────────┴───────────────────┘             │
@@ -51,6 +51,7 @@ a command and control framework written in go. the server runs on linux/windows,
 │                                                                                  │
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
 │  │                          Transport Layer                                   │  │
+│  │  - AES-256-GCM encrypted communications (all C2 traffic)                   │  │
 │  │  - WinHTTP via manual API resolution (no static imports)                   │  │
 │  │  - Registration & beacon loop with configurable sleep/jitter               │  │
 │  └────────────────────────────────────────────────────────────────────────────┘  │
@@ -98,7 +99,7 @@ a command and control framework written in go. the server runs on linux/windows,
 ### components
 
 - **server**: linux/windows binary hosting web panel, REST API, and C2 listener on configurable ports
-- **implant**: windows x64 executable that beacons to the server, executes tasks, returns results
+- **implant**: windows x64 executable that beacons to the server, executes tasks, returns results. all communications are AES-256-GCM encrypted
 - **stagers**: tiny windows loaders that download and execute the implant in-memory using NT APIs (available in C, Zig, Nim, and Rust)
 - **gobound.dll**: helper dll for chrome credential extraction (reflectively injected into chrome process to decrypt the app-bound encryption master key)
 
@@ -244,7 +245,19 @@ the implant uses manual api resolution via PEB walking and djb2 hash lookups. no
 
 ### transport
 
-http transport using WinHTTP apis resolved manually:
+**encryption:**
+
+all C2 communications are encrypted using AES-256-GCM authenticated encryption:
+- 32-byte (256-bit) pre-shared key configured at build time
+- random 12-byte nonce generated per message and prepended to ciphertext
+- authenticated encryption prevents tampering and ensures integrity
+- encryption covers: registration, beacons, task results, and server responses
+
+the encryption key is set via the `CARVED_KEY` environment variable (64 hex characters) or can be configured in the shared crypto package. both server and implant must use the same key.
+
+**http layer:**
+
+WinHTTP apis resolved manually (no static imports):
 - `WinHttpOpen`, `WinHttpConnect`, `WinHttpOpenRequest`
 - `WinHttpSendRequest`, `WinHttpReceiveResponse`, `WinHttpReadData`
 - supports http and https (via WINHTTP_FLAG_SECURE)
@@ -383,7 +396,7 @@ single-page application with:
 
 ## limitations
 
-- http only (https should work if you configure tls in the listener code but untested)
+- C2 traffic is encrypted (AES-256-GCM) but runs over HTTP by default (HTTPS should work via WINHTTP_FLAG_SECURE but is untested)
 - implant is windows x64 only
 - server is linux only (or windows with go1.24.11 for cross-compilation)
 - no persistence mechanisms built in
@@ -409,11 +422,11 @@ contributions are welcome :3
 feel free to open issues, submit pull requests, or just fork and do whatever you want with it. this project is meant for educational purposes and security research. if you add something cool, share it back!
 
 some areas that could use love:
-- https listener support
+- https listener support (TLS termination on server side)
 - additional evasion techniques
 - more beacon api implementations
-- evasion stuffs 
 - persistence modules
+- alternative transport protocols (DNS, SMB, etc.)
 
 ## project structure
 
@@ -431,6 +444,8 @@ carved/
 │   └── build.sh                # standalone stager build script (C only)
 ├── go.mod
 ├── shared/
+│   ├── crypto/
+│   │   └── crypto.go           # AES-256-GCM encryption/decryption
 │   └── proto/
 │       └── types.go            # shared types between server and implant
 ├── server/
