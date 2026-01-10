@@ -38,7 +38,7 @@ func loadPeInternal(peBytes []byte) uintptr {
 	var regionSize uintptr = uintptr(sizeOfImage)
 	ret, _ := wc.IndirectSyscall(ntAlloc.SSN, ntAlloc.Address, currProc, uintptr(unsafe.Pointer(&baseAddr)), 0, uintptr(unsafe.Pointer(&regionSize)), 0x00001000|0x00002000, 0x04)
 	if ret != 0 {
-		fmt.Printf("[+] ret 0x%x\n", ret)
+		fmt.Printf("[+] alloc ret 0x%x\n", ret)
 		return 0
 	}
 	dstSlice := unsafe.Slice((*byte)(unsafe.Pointer(baseAddr)), sizeOfHeaders)
@@ -295,7 +295,7 @@ func loadPeInternal(peBytes []byte) uintptr {
 			uintptr(unsafe.Pointer(&oldProtect)))
 
 		if ret != 0 {
-			fmt.Printf("[-] ntprot returned 0x%x\n", ret)
+			fmt.Printf("[+] ntprot returned 0x%x\n", ret)
 		}
 	}
 	var tHandle uintptr

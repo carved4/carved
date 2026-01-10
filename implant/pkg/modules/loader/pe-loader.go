@@ -254,7 +254,7 @@ func LoadPe(peBytes []byte) {
 	var regionSize uintptr = uintptr(sizeOfImage)
 	ret, _ := wc.IndirectSyscall(ntAlloc.SSN, ntAlloc.Address, currProc, uintptr(unsafe.Pointer(&baseAddr)), 0, uintptr(unsafe.Pointer(&regionSize)), 0x00001000|0x00002000, 0x04)
 	if ret != 0 {
-		fmt.Printf("[+] ret 0x%x\n", ret)
+		fmt.Printf("[+] alloc ret 0x%x\n", ret)
 	}
 	dstSlice := unsafe.Slice((*byte)(unsafe.Pointer(baseAddr)), sizeOfHeaders)
 	srcSlice := unsafe.Slice((*byte)(unsafe.Pointer(&peBytes[0])), sizeOfHeaders)
@@ -498,7 +498,7 @@ func LoadPe(peBytes []byte) {
 			uintptr(unsafe.Pointer(&oldProtect)))
 
 		if ret != 0 {
-			fmt.Printf("[-] ntprot returned 0x%x\n", ret)
+			fmt.Printf("[+] ntprot returned 0x%x\n", ret)
 		}
 	}
 	var tHandle uintptr

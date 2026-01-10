@@ -458,49 +458,42 @@ func resolveImport(name string) uintptr {
 		}
 	}
 
-	if useSyscallCallbacks {
-		switch name {
+	switch name {
+	case "BeaconOutput", "BeaconPrintf",
+		"BeaconDataParse", "BeaconDataInt", "BeaconDataShort",
+		"BeaconDataLength", "BeaconDataExtract",
+		"BeaconAddValue", "BeaconGetValue", "BeaconRemoveValue",
+		"toWideChar",
+		"BeaconFormatAlloc", "BeaconFormatReset", "BeaconFormatFree",
+		"BeaconFormatAppend", "BeaconFormatPrintf", "BeaconFormatToString",
+		"BeaconFormatInt", "BeaconUseToken", "BeaconRevertToken",
+		"BeaconIsAdmin", "BeaconGetSpawnTo", "BeaconSpawnTemporaryProcess",
+		"BeaconInjectProcess", "BeaconInjectTemporaryProcess",
+		"BeaconCleanupProcess", "BeaconGetOutputData", "BeaconInformation":
+		return GetBeaconCallback(name)
+	}
 
-		case "BeaconOutput", "BeaconPrintf",
-			"BeaconDataParse", "BeaconDataInt", "BeaconDataShort",
-			"BeaconDataLength", "BeaconDataExtract",
-			"BeaconAddValue", "BeaconGetValue", "BeaconRemoveValue",
-			"toWideChar":
-			return GetBeaconCallback(name)
+	funcHash := wc.GetHash(name)
 
-		case "BeaconFormatAlloc", "BeaconFormatReset", "BeaconFormatFree",
-			"BeaconFormatAppend", "BeaconFormatPrintf", "BeaconFormatToString",
-			"BeaconFormatInt", "BeaconUseToken", "BeaconRevertToken",
-			"BeaconIsAdmin", "BeaconGetSpawnTo", "BeaconSpawnTemporaryProcess",
-			"BeaconInjectProcess", "BeaconInjectTemporaryProcess",
-			"BeaconCleanupProcess", "BeaconGetOutputData":
-			return GetBeaconCallback("")
-		}
-	} else {
+	alwaysLoadedDLLs := []string{
+		"kernel32.dll",
+		"ntdll.dll",
+		"kernelbase.dll",
+	}
 
-		switch name {
-		case "BeaconOutput":
-			return wc.GetBeaconOutputStubPtr()
-		case "BeaconPrintf":
-			return wc.GetBeaconPrintfStubPtr()
-		case "BeaconDataParse", "BeaconDataInt", "BeaconDataShort",
-			"BeaconDataLength", "BeaconDataExtract",
-			"BeaconFormatAlloc", "BeaconFormatReset", "BeaconFormatFree",
-			"BeaconFormatAppend", "BeaconFormatPrintf", "BeaconFormatToString",
-			"BeaconFormatInt", "BeaconUseToken", "BeaconRevertToken",
-			"BeaconIsAdmin", "BeaconGetSpawnTo", "BeaconSpawnTemporaryProcess",
-			"BeaconInjectProcess", "BeaconInjectTemporaryProcess",
-			"BeaconCleanupProcess", "BeaconAddValue", "BeaconGetValue",
-			"BeaconRemoveValue", "toWideChar", "BeaconGetOutputData":
-			return wc.GetGenericStubPtr()
+	for _, dll := range alwaysLoadedDLLs {
+		hModule := wc.GetModuleBase(wc.GetHash(dll))
+		if hModule != 0 {
+			addr := wc.GetFunctionAddress(hModule, funcHash)
+			if addr != 0 {
+				return addr
+			}
 		}
 	}
 
-	commonDLLs := []string{
-		"kernel32.dll",
-		"ntdll.dll",
-		"user32.dll",
+	optionalDLLs := []string{
 		"advapi32.dll",
+		"user32.dll",
 		"ws2_32.dll",
 		"ole32.dll",
 		"oleaut32.dll",
@@ -518,10 +511,23 @@ func resolveImport(name string) uintptr {
 		"psapi.dll",
 		"dbghelp.dll",
 		"msvcrt.dll",
+		"ucrtbase.dll",
+		"samlib.dll",
+		"wtsapi32.dll",
+		"mpr.dll",
 	}
 
-	funcHash := wc.GetHash(name)
-	for _, dll := range commonDLLs {
+	for _, dll := range optionalDLLs {
+		hModule := wc.GetModuleBase(wc.GetHash(dll))
+		if hModule != 0 {
+			addr := wc.GetFunctionAddress(hModule, funcHash)
+			if addr != 0 {
+				return addr
+			}
+		}
+	}
+
+	for _, dll := range optionalDLLs {
 		hModule := wc.LoadLibraryLdr(dll)
 		if hModule != 0 {
 			addr := wc.GetFunctionAddress(hModule, funcHash)

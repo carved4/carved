@@ -5,6 +5,9 @@ echo "[*] building carved C2 framework..."
 
 mkdir -p build/payloads
 
+ENCRYPTION_KEY=$(openssl rand -hex 32)
+echo "[*] generated encryption key: ${ENCRYPTION_KEY}"
+
 echo "[*] building gobound.dll..."
 cd gobound/dll
 GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -buildmode=c-shared -ldflags="-s -w" -trimpath -o ../../build/payloads/gobound.dll
@@ -12,13 +15,13 @@ cd ../..
 
 echo "[*] building server..."
 cd server/cmd
-GOOS=linux GOARCH=amd64 go1.24.11 build -ldflags="-s -w" -trimpath -o ../../build/server
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o ../../build/server.exe
+GOOS=linux GOARCH=amd64 go1.24.11 build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY}" -trimpath -o ../../build/server
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY}" -trimpath -o ../../build/server.exe
 cd ../..
 
 echo "[*] building implant..."
 cd implant/cmd
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o ../../build/implant.exe
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY}" -trimpath -o ../../build/implant.exe
 cd ../..
 
 # Copy implant to payloads for stager
