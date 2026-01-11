@@ -118,6 +118,7 @@ requires:
 the build script will prompt for stager configuration:
 - **C2 server IP** - where the stager will download the implant from (default: 127.0.0.1)
 - **C2 listener port** - the listener port (default: 8443)
+- **Enable TLS?** - generates self-signed certificates for HTTPS (default: no)
 
 outputs:
 - `build/server` - linux team server
@@ -150,27 +151,34 @@ web panel credentials are **randomly generated** on each server start and printe
 
 1. spin up a vps on [vultr](https://www.vultr.com/) (or any vps provider) - ubuntu/debian works great
 2. note your public ip address
-3. edit `implant/cmd/main.go` and set `ServerURL` to your vps ip:
-   ```go
-   ServerURL = "http://YOUR_VPS_IP:8443/"
-   ```
-4. build everything locally:
-   ```bash
-   ./build.sh
-   ```
-5. scp the build directory to your vps:
-   ```bash
-   scp -r build/ root@YOUR_VPS_IP:/opt/carved/
-   scp -r BOFs/ root@YOUR_VPS_IP:/opt/carved/
-   ```
-6. ssh into your vps and start the server:
-   ```bash
-   ssh root@YOUR_VPS_IP
-   cd /opt/carved
-   ./server -port 9000 -listener 8443
-   ```
-7. access the web panel at `http://YOUR_VPS_IP:9000`
-8. run `implant.exe` on target windows machine
+3. **Option A: Build Remotely (Recommended)**
+   - SSH into your VPS
+   - Clone or upload the repository
+   - Run the setup script to install all build dependencies (Go, Rust, Zig, Nim):
+     ```bash
+     chmod +x setup.sh
+     ./setup.sh
+     ```
+   - Build the framework:
+     ```bash
+     ./build.sh
+     ```
+     - Enter your VPS IP when prompted
+     - Enable TLS to generate self-signed certificates
+   - Start the server:
+     ```bash
+     cd build
+     ./server -port 9000 -listener 8443
+     ```
+
+4. **Option B: Build Locally**
+   - Edit `implant/cmd/main.go` and set `ServerURL` to your VPS IP/URL (e.g. `https://YOUR_VPS_IP:8443/` if using TLS)
+   - Build using `./build.sh` (enable TLS if desired)
+   - SCP the `build/` directory and `BOFs/` directory to your VPS
+   - SSH in and start the server
+
+5. Access the web panel at `http://YOUR_VPS_IP:9000`
+6. Run a stager on target x64 windows machine
 
 ### running locally
 
@@ -396,7 +404,7 @@ single-page application with:
 
 ## limitations
 
-- C2 traffic is encrypted (AES-256-GCM) but runs over HTTP by default (HTTPS should work via WINHTTP_FLAG_SECURE but is untested)
+- C2 traffic is encrypted (AES-256-GCM) and supports HTTPS (via self-signed certs generated during build)
 - implant is windows x64 only
 - server is linux only (or windows with go1.24.11 for cross-compilation)
 - no persistence mechanisms built in
