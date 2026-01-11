@@ -131,11 +131,6 @@ outputs:
 - `build/payloads/gobound.dll` - chrome extraction dll
 - `build/payloads/implant.exe` - implant served by the `/implant` endpoint
 
-on windows (uses `go1.24.11` for cross-compilation):
-```batch
-build.bat
-```
-
 ## configuration
 
 edit `implant/cmd/main.go` before building to set:
@@ -221,7 +216,6 @@ the server provides:
 
 ### credentials
 - `hashdump` - dump sam hashes and lsa secrets (requires admin)
-- `lsasecrets` - dump lsa secrets only (requires admin)
 - `chrome` - extract chrome passwords, cookies, credit cards
 
 ### evasion
@@ -261,7 +255,7 @@ all C2 communications are encrypted using AES-256-GCM authenticated encryption:
 - authenticated encryption prevents tampering and ensures integrity
 - encryption covers: registration, beacons, task results, and server responses
 
-the encryption key is set via the `CARVED_KEY` environment variable (64 hex characters) or can be configured in the shared crypto package. both server and implant must use the same key.
+the encryption key is set via the build.sh script and generated with openssl
 
 **http layer:**
 
@@ -281,25 +275,7 @@ the coff loader implements:
 
 **beacon api implementation:**
 
-the bof loader uses `syscall.NewCallback` from Go's standard library to create Windows-callable function pointers for beacon apis. this was necessary because calling BOF code requires proper ABI translation between Go's calling convention and the Windows x64 ABI. rather than reimplementing the complex Go ABI -> OS ABI translation that `syscall.NewCallback` handles internally, we leverage it to create proper callback trampolines.
-
-supported beacon apis:
-- `BeaconOutput` - write output to buffer
-- `BeaconPrintf` - formatted output (supports %s, %d, %u, %x, %X, %p)
-- `BeaconDataParse` - initialize argument parser
-- `BeaconDataInt` - extract 32-bit integer
-- `BeaconDataShort` - extract 16-bit integer
-- `BeaconDataLength` - get remaining data length
-- `BeaconDataExtract` - extract length-prefixed binary data
-- `BeaconAddValue` / `BeaconGetValue` / `BeaconRemoveValue` - key-value store
-- `toWideChar` - convert ANSI to wide string
-
-argument packing format:
-- `b<hex>` - binary data
-- `i<int>` - 32-bit integer
-- `s<int>` - 16-bit short
-- `z<string>` - null-terminated string
-- `Z<string>` - null-terminated wide string
+the bof loader uses `syscall.NewCallback` from Go's standard library to create Windows-callable function pointers for beacon apis. this was necessary because calling BOF code requires proper ABI translation between Go's calling convention and the Windows x64 ABI. rather than reimplementing the complex Go ABI -> OS ABI translation that `syscall.NewCallback` handles internally, we leverage it to create proper callback trampolines. all CS compatible BOFs should work, open an issue if you find something I missed!
 
 ### stagers
 
