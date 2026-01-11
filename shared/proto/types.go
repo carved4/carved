@@ -64,6 +64,7 @@ const (
 
 	TaskHashdump TaskType = "hashdump"
 	TaskChrome   TaskType = "chrome"
+	TaskExfil    TaskType = "exfil"
 
 	TaskUnhook TaskType = "unhook"
 )

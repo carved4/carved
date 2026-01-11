@@ -6,16 +6,17 @@ a command & control framework written in go. featuring full BOF loader support t
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            SERVER (linux/windows)                               │
+│                            SERVER (linux/windows/mac)                           │
 │                                                                                 │
 │  ┌───────────────┐  ┌──────────────┐  ┌────────────────┐  ┌─────────────────┐   │
-│  │   Web Panel   │  │   REST API   │  │  HTTP Listener │  │ Payload Server  │   │
+│  │   web panel   │  │   REST API   │  │  http listener │  │ payload server  │   │
 │  │  (panel.go)   │  │  (router.go) │  │   (http.go)    │  │  /implant       │   │
 │  │               │  │              │  │                │  │  /payloads/*    │   │
-│  │ - Random auth │  │ - Tasks      │  │ - Checkins     │  │                 │   │
-│  │ - BOF browser │  │ - Implants   │  │ - Task results │  │ - Serves        │   │
-│  │ - Shellcode   │  │ - Creds      │  │ - Registration │  │   implant.exe   │   │
-│  │ - Credentials │  │ - Listeners  │  │ (AES-256-GCM)  │  │   gobound.dll   │   │
+│  │ - random auth │  │ - tasks      │  │ - checkins     │  │                 │   │
+│  │ - BOF browser │  │ - implants   │  │ - task results │  │ - serves        │   │
+│  │ - shellcode   │  │ - register   │  │   payloads/    │  │   stagers       │   │
+│  │ - credentials │  │ - creds      │  │                │  │   implant.exe   │   │
+│  │               │  │ - listeners  │  │ (AES-256-GCM)  │  │   gobound.dll   │   │
 │  └───────────────┘  └──────────────┘  └────────────────┘  └─────────────────┘   │
 │          │                 │                  │                   │             │
 │          └─────────────────┴──────────────────┴───────────────────┘             │
@@ -24,7 +25,7 @@ a command & control framework written in go. featuring full BOF loader support t
 │                                │   SQLite    │                                  │
 │                                │   (db.go)   │                                  │
 │                                └─────────────┘                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────────────────────────┘ 
                                         │
            ┌────────────────────────────┼────────────────────────────┐
            │                            │                            │
@@ -32,15 +33,15 @@ a command & control framework written in go. featuring full BOF loader support t
 ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────────┐
 │      STAGERS        │    │                     │    │      BOFs/ Directory    │
 │                     │    │                     │    │                         │
-│ stager_c.exe   10KB │    │                     │    │  - Cobalt Strike        │
-│ stager_zig.exe 10KB │    │                     │    │    compatible BOFs      │
-│ stager_nim.exe 137KB│    │                     │    │  - TrustedSec SA-BOF    │
-│ stager_rust.exe 21KB│    │                     │    │  - Custom BOFs          │
+│ stager_c  10KB      │    │                     │    │  - cobalt Strike        │
+│ stager_zig 10KB     │    │                     │    │    compatible BOFs      │
+│ stager_nim 135KB    │    │                     │    │  - trustedSec SA-BOF    │
+│ stager_rust 246KB   │    │                     │    │  - custom BOFs          │
 │                     │    │                     │    │                         │
-│ - WinHTTP download  │    │                     │    │                         │
-│ - In-memory PE map  │    │                     │    │                         │
+│ - winhttp download  │    │                     │    │                         │
+│ - in-memory PE map  │    │                     │    │                         │
 │ - NT API execution  │    │                     │    │                         │
-│ - No console window │    │                     │    │                         │
+│ - no console window │    │                     │    │                         │
 └─────────────────────┘    │                     │    └─────────────────────────┘
            │               │                     │                  │
            │ Downloads     │                     │                  │
@@ -50,38 +51,31 @@ a command & control framework written in go. featuring full BOF loader support t
 │                           IMPLANT (windows x64)                                  │
 │                                                                                  │
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
-│  │                          Transport Layer                                   │  │
+│  │                          transport Layer                                   │  │
 │  │  - AES-256-GCM encrypted communications (all C2 traffic)                   │  │
 │  │  - WinHTTP via manual API resolution (no static imports)                   │  │
 │  │  - Registration & beacon loop with configurable sleep/jitter               │  │
 │  └────────────────────────────────────────────────────────────────────────────┘  │
 │                                      │                                           │
 │  ┌───────────────────────────────────┴────────────────────────────────────────┐  │
-│  │                          Task Registry                                     │  │
-│  │  - Handler registration pattern                                            │  │
-│  │  - JSON task serialization                                                 │  │
+│  │                          task registry                                     │  │
+│  │                  - handler registration pattern                            │  │
+│  │                  - json task serialization                                 │  │
 │  └────────────────────────────────────────────────────────────────────────────┘  │
 │                                      │                                           │
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
-│  │                             Modules                                        │  │
+│  │                             modules                                        │  │
 │  │                                                                            │  │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │  │
-│  │  │    Loader    │  │  Shellcode   │  │    Creds     │  │    Chrome    │    │  │
+│  │  │    loader    │  │  shellcode   │  │    creds     │  │    chrome    │    │  │
 │  │  │              │  │              │  │              │  │              │    │  │
-│  │  │ - BOF/COFF   │  │ - Enclave    │  │ - SAM dump   │  │ - Cookies    │    │  │
-│  │  │ - PE loader  │  │ - Indirect   │  │ - LSA secrets│  │ - Passwords  │    │  │
-│  │  │ - DLL inject │  │ - RunOnce    │  │ - NTDS.dit   │  │ - Credit cards│   │  │
-│  │  │ - Reflective │  │              │  │              │  │ - App-bound  │    │  │
+│  │  │ - BOF/COFF   │  │ - enclave    │  │ - SAM dump   │  │ - cookies    │    │  │
+│  │  │ - PE loader  │  │ - indirect   │  │ - LSA secrets│  │ - passwords  │    │  │
+│  │  │ - DLL inject │  │ - runOnce    │  │ - NTDS.dit   │  │ - cards      │    │  │
+│  │  │ - DLL remote │  │ - lineDDA    │  │              │  │ - app bound  │    │  │
+│  │  │ - reflective │  │ - enum pages │  │              │  │              │    │  │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘    │  │
 │  │                                                                            │  │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                      │  │
-│  │  │     Exec     │  │   Evasion    │  │  Filesystem  │                      │  │
-│  │  │              │  │              │  │              │                      │  │
-│  │  │ - cmd.exe    │  │ - Unhook     │  │ - ls/cd/pwd  │                      │  │
-│  │  │ - PowerShell │  │   ntdll.dll  │  │ - cat/mkdir  │                      │  │
-│  │  │ - Process    │  │ - Indirect   │  │ - upload     │                      │  │
-│  │  │   listing    │  │   syscalls   │  │ - download   │                      │  │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘                      │  │
 │  └────────────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────────┘
                                        │
@@ -90,9 +84,9 @@ a command & control framework written in go. featuring full BOF loader support t
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                               gobound.dll                                        │
 │                                                                                  │
-│  - Reflectively injected into Chrome process                                     │
-│  - Decrypts app-bound encryption key via IElevator COM interface                 │
-│  - Communicates master key back to implant via named pipe                        │
+│  - reflectively injected into chrome process                                     │
+│  - decrypts app-bound encryption key via IElevator COM interface                 │
+│  - communicates master key back to implant via named pipe                        │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -205,6 +199,7 @@ the server provides:
 - `download <path>` - download file from implant
 - `mkdir <path>` - create directory
 - `rm <path>` - remove file or directory
+- `exfil <path>` - zip file/folder in memory and upload to exfil endpoint
 
 ### process
 - `ps` - list processes
@@ -226,6 +221,8 @@ the server provides:
   - `enclave` - uses LdrCallEnclave via mscoree.dll RWX heap + vdsutil.dll allocation
   - `indirect` - indirect syscalls with NtAllocateVirtualMemory + RtlCreateUserThread
   - `once` - uses RtlRunOnceExecuteOnce (synchronous, do NOT use shellcode that calls ExitProcess)
+  - `enumpagefiles` - abuses EnumPageFilesW callback via kernelbase (synchronous)
+  - `linedda` - abuses LineDDA callback via gdi32.dll (synchronous)
 
 shellcode should not call ExitProcess or the implant will die.
 
@@ -474,6 +471,8 @@ carved/
 │           │   └── shellcode.go    # shellcode execution methods
 │           ├── exec/
 │           │   └── exec.go         # command execution
+│           ├── exfil/
+│           │   └── exfil.go        # zipping and exfiltration
 │           ├── chrome/
 │           │   └── chrome.go       # chrome credential extraction
 │           └── creds/

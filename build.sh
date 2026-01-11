@@ -50,8 +50,8 @@ cd ../..
 
 echo "[*] building server..."
 cd server/cmd
-GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY}" -trimpath -o ../../build/server_mac
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY}" -trimpath -o ../../build/server
+GOOS=darwin GOARCH=amd64 go1.24.11 build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY}" -trimpath -o ../../build/server_mac
+GOOS=linux GOARCH=amd64 go1.24.11 build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY}" -trimpath -o ../../build/server
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY}" -trimpath -o ../../build/server.exe
 cd ../..
 

