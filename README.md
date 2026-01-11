@@ -1,7 +1,7 @@
 # carved
 
-a command and control framework written in go. features AES-256-GCM encrypted communications, indirect syscalls, and in-memory execution. the server runs on linux/windows, the implant targets windows x64.
-
+a command & control framework written in go. featuring full BOF loader support that will work with any Cobalt Strike compatible BOF, full pe + dll + shellcode injection support with various methods, run shell commands, take screenshots, dump chrome cookies/passwords/cards, dump hashes with raw disk parsing, manage multiple implants, stagers in rust/nim/zig/c, and a lot more :3
+ 
 ## architecture
 
 ```
