@@ -25,6 +25,9 @@ var (
 )
 
 func main() {
+	if wc.IsDebuggerPresent() {
+		os.Exit(0)
+	}
 	if EncryptionKey != "" {
 		if err := crypto.SetKey(EncryptionKey); err != nil {
 			fmt.Printf("[!] failed to set encryption key: %v\n", err)

@@ -6,6 +6,9 @@ build/stager*.exe
 build/payloads/
 build/uploads/
 build/*.db
+build/server.crt
+build/server.key
+build/server_mac
 
 # Zig
 .zig-cache/

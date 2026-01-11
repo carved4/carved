@@ -13,38 +13,39 @@ import (
 )
 
 var (
-	kernel32Base			uintptr
-	ole32Base			uintptr
-	oleaut32Base			uintptr
-	createFileW			uintptr
-	writeFile			uintptr
-	closeHandle			uintptr
-	coInitializeEx			uintptr
-	coUninitialize			uintptr
-	coCreateInstance		uintptr
-	coSetProxyBlanket		uintptr
-	sysAllocStringByteLen		uintptr
-	sysFreeString			uintptr
-	sysStringByteLen		uintptr
-	freeLibraryAndExitThread	uintptr
-	getModuleHandleW		uintptr
-	hPipe				uintptr
-	hModule				uintptr
+	kernel32Base             uintptr
+	ole32Base                uintptr
+	oleaut32Base             uintptr
+	createFileW              uintptr
+	writeFile                uintptr
+	closeHandle              uintptr
+	coInitializeEx           uintptr
+	coUninitialize           uintptr
+	coCreateInstance         uintptr
+	coSetProxyBlanket        uintptr
+	sysAllocStringByteLen    uintptr
+	sysFreeString            uintptr
+	sysStringByteLen         uintptr
+	freeLibraryAndExitThread uintptr
+	getModuleHandleW         uintptr
+	hPipe                    uintptr
+	hModule                  uintptr
 )
 
 const (
-	GENERIC_READ		= 0x80000000
-	GENERIC_WRITE		= 0x40000000
-	OPEN_EXISTING		= 3
-	FILE_ATTRIBUTE_NORMAL	= 0x80
-	INVALID_HANDLE_VALUE	= ^uintptr(0)
-	CLSCTX_LOCAL_SERVER	= 0x4
-	pipeName		= `\\.\pipe\chromepipe`
+	GENERIC_READ          = 0x80000000
+	GENERIC_WRITE         = 0x40000000
+	OPEN_EXISTING         = 3
+	FILE_ATTRIBUTE_NORMAL = 0x80
+	INVALID_HANDLE_VALUE  = ^uintptr(0)
+	CLSCTX_LOCAL_SERVER   = 0x4
 )
 
+var pipeName string = `\\.\pipe\chromepipe`
+
 var (
-	CLSID_ChromeElevator	= GUID{0x708860E0, 0xF641, 0x4611, [8]byte{0x88, 0x95, 0x7D, 0x86, 0x7D, 0xD3, 0x67, 0x5B}}
-	IID_IElevator		= GUID{0x463ABECF, 0x410D, 0x407F, [8]byte{0x8A, 0xF5, 0x0D, 0xF3, 0x5A, 0x00, 0x5C, 0xC8}}
+	CLSID_ChromeElevator = GUID{0x708860E0, 0xF641, 0x4611, [8]byte{0x88, 0x95, 0x7D, 0x86, 0x7D, 0xD3, 0x67, 0x5B}}
+	IID_IElevator        = GUID{0x463ABECF, 0x410D, 0x407F, [8]byte{0x8A, 0xF5, 0x0D, 0xF3, 0x5A, 0x00, 0x5C, 0xC8}}
 )
 
 func init() {
@@ -245,5 +246,4 @@ func run() {
 	}
 }
 
-func main()	{}
-
+func main() {}

