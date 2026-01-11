@@ -14,12 +14,15 @@ import (
 	wc "github.com/carved4/go-wincall"
 )
 
+var UserAgent string
+
 type HTTPTransport struct {
 	config    *Config
 	implantID string
 }
 
 func NewHTTPTransport(cfg *Config, implantID string) *HTTPTransport {
+	UserAgent = cfg.UserAgent
 	return &HTTPTransport{
 		config:    cfg,
 		implantID: implantID,
@@ -135,7 +138,7 @@ func httpRequest(url, method string, body []byte, userAgent string) ([]byte, err
 	winHttpSetOption := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpSetOption"))
 
 	if userAgent == "" {
-		userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+		userAgent = UserAgent
 	}
 
 	userAgentPtr, _ := wc.UTF16ptr(userAgent)

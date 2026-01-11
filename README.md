@@ -263,6 +263,7 @@ WinHTTP apis resolved manually (no static imports):
 - `WinHttpOpen`, `WinHttpConnect`, `WinHttpOpenRequest`
 - `WinHttpSendRequest`, `WinHttpReceiveResponse`, `WinHttpReadData`
 - supports http and https (via WINHTTP_FLAG_SECURE)
+- random user agent generated at compile time (unique per build)
 
 ### bof loader
 
@@ -427,6 +428,8 @@ carved/
 │   ├── Cargo.toml              # Rust build configuration
 │   └── build.sh                # standalone stager build script (C only)
 ├── go.mod
+├── utils/
+│   └── genua/              # random user agent generator
 ├── shared/
 │   ├── crypto/
 │   │   └── crypto.go           # AES-256-GCM encryption/decryption
