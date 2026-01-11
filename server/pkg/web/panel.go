@@ -1313,6 +1313,8 @@ input[type="checkbox"]:hover:not(:disabled) {
                 <option value="indirect">indirect syscall</option>
                 <option value="enclave">enclave injection</option>
                 <option value="once">rtl run once</option>
+                <option value="enumpagefiles">enum page files</option>
+                <option value="linedda">linedda</option>
               </select>
             </div>
             <div class="method-info" id="methodInfo">
@@ -1590,6 +1592,12 @@ async function loadImplantTasks(id) {
   const list = document.getElementById('taskList');
   const scrollTop = list.scrollTop;
 
+  // Save scroll positions of individual task outputs by task id
+  const outputScrolls = {};
+  list.querySelectorAll('.task-output[data-task-id]').forEach(el => {
+    outputScrolls[el.dataset.taskId] = el.scrollTop;
+  });
+
   if (tasks.length === 0) {
     list.innerHTML = '<div class="empty-state">no tasks</div>';
     return;
@@ -1601,10 +1609,17 @@ async function loadImplantTasks(id) {
         <span class="task-type"><span class="status ${t.status}"></span>${t.type}</span>
         <span class="task-time">${formatTime(t.created)}</span>
       </div>
-      ${t.output ? ` + "`" + `<div class="task-output">${formatOutput(t.output, t.type, t.id)}</div>` + "`" + ` : ''}
-      ${t.error ? ` + "`" + `<div class="task-output task-error">${escapeHtml(t.error)}</div>` + "`" + ` : ''}
+      ${t.output ? ` + "`" + `<div class="task-output" data-task-id="${t.id}">${formatOutput(t.output, t.type, t.id)}</div>` + "`" + ` : ''}
+      ${t.error ? ` + "`" + `<div class="task-output task-error" data-task-id="${t.id}-err">${escapeHtml(t.error)}</div>` + "`" + ` : ''}
     </div>
   ` + "`" + `).join('');
+
+  // Restore scroll positions of individual task outputs
+  list.querySelectorAll('.task-output[data-task-id]').forEach(el => {
+    if (outputScrolls[el.dataset.taskId]) {
+      el.scrollTop = outputScrolls[el.dataset.taskId];
+    }
+  });
 
   list.scrollTop = scrollTop;
 }
@@ -1948,6 +1963,7 @@ async function exportChromeResults() {
 }
 
 async function loadAllResults() {
+  const windowScrollY = window.scrollY;
   const implants = await api('/implants') || [];
   let allTasks = [];
 
@@ -1966,11 +1982,19 @@ async function loadAllResults() {
   renderResults('chromeResultsList', chromeResults);
   renderResults('shellResultsList', allTasks.filter(t => t.type === 'shell' || t.type === 'powershell'));
   renderResults('bofResultsList', allTasks.filter(t => t.type === 'bof'));
+
+  window.scrollTo(0, windowScrollY);
 }
 
 function renderResults(containerId, tasks) {
   const container = document.getElementById(containerId);
   const scrollTop = container.scrollTop;
+
+  // Save scroll positions of individual task outputs by task id
+  const outputScrolls = {};
+  container.querySelectorAll('.task-output[data-task-id]').forEach(el => {
+    outputScrolls[el.dataset.taskId] = el.scrollTop;
+  });
 
   if (tasks.length === 0) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">--</div><div>no results yet</div><div style="font-size:10px;color:var(--text-dim);margin-top:8px">execute tasks on implants to see output</div></div>';
@@ -1986,10 +2010,17 @@ function renderResults(containerId, tasks) {
         </span>
         <span class="task-time">${formatTime(t.created)}</span>
       </div>
-      ${t.output ? ` + "`" + `<div class="task-output">${formatOutput(t.output, t.type, t.id)}</div>` + "`" + ` : ''}
-      ${t.error ? ` + "`" + `<div class="task-output task-error">${escapeHtml(t.error)}</div>` + "`" + ` : ''}
+      ${t.output ? ` + "`" + `<div class="task-output" data-task-id="${t.id}">${formatOutput(t.output, t.type, t.id)}</div>` + "`" + ` : ''}
+      ${t.error ? ` + "`" + `<div class="task-output task-error" data-task-id="${t.id}-err">${escapeHtml(t.error)}</div>` + "`" + ` : ''}
     </div>
   ` + "`" + `).join('');
+
+  // Restore scroll positions of individual task outputs
+  container.querySelectorAll('.task-output[data-task-id]').forEach(el => {
+    if (outputScrolls[el.dataset.taskId]) {
+      el.scrollTop = outputScrolls[el.dataset.taskId];
+    }
+  });
 
   container.scrollTop = scrollTop;
 }
@@ -2393,6 +2424,12 @@ document.addEventListener('DOMContentLoaded', function() {
           break;
         case 'once':
           desc.innerHTML = 'rtlrunonceexecuteonce callback. <span style="color:var(--error)">[sync]</span> - shellcode must return, do not use exit payloads!';
+          break;
+        case 'enumpagefiles':
+          desc.innerHTML = 'enumpagefilesw callback via kernelbase. <span style="color:var(--warning)">[sync]</span> - shellcode must return.';
+          break;
+        case 'linedda':
+          desc.innerHTML = 'linedda callback abuse via gdi32.dll. <span style="color:var(--warning)">[sync]</span> - shellcode must return.';
           break;
       }
     });

