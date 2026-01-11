@@ -324,6 +324,13 @@ func runExtraction(serverURL string) (*Output, error) {
 		dbType  string
 	}, 0)
 
+	// Ensure we clean up all temp files when we exit this function
+	defer func() {
+		for _, fileInfo := range tempFiles {
+			os.Remove(fileInfo.path)
+		}
+	}()
+
 	for i, info := range foundHandles {
 		data, _, err := ExtractFile(info.handle, info.pid)
 		if err != nil {
@@ -455,7 +462,6 @@ func runExtraction(serverURL string) (*Output, error) {
 			cards := extractCards(masterKey, fileInfo.path, fileInfo.profile)
 			output.Cards = append(output.Cards, cards...)
 		}
-		os.Remove(fileInfo.path)
 	}
 
 	return &output, nil

