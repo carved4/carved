@@ -1337,6 +1337,7 @@ input[type="checkbox"]:hover:not(:disabled) {
                 <option value="once">rtl run once</option>
                 <option value="enumpagefiles">enum page files</option>
                 <option value="linedda">linedda</option>
+                <option value="vulkan">vulkan</option>
               </select>
             </div>
             <div class="method-info" id="methodInfo">
@@ -2455,6 +2456,11 @@ document.addEventListener('DOMContentLoaded', function() {
         case 'linedda':
           desc.innerHTML = 'linedda callback abuse via gdi32.dll. <span style="color:var(--warning)">[sync]</span> - shellcode must return.';
           break;
+        case 'vulkan':
+		  desc.innerHTML = 'vulkan callback abuse via vulkan-1.dll. <span style="color:var(--warning)">[sync]</span> - shellcode must return.';
+		  break;
+		default:
+		  desc.innerHTML = '';
       }
     });
   }

