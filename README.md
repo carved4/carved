@@ -121,7 +121,7 @@ outputs:
 - `build/stager_c.exe` - C stager (~10KB)
 - `build/stager_zig.exe` - Zig stager (~10KB)
 - `build/stager_nim.exe` - Nim stager (~137KB)
-- `build/stager_rust.exe` - Rust stager (~21KB)
+- `build/stager_rust.exe` - Rust stager (~246KB)
 - `build/payloads/gobound.dll` - chrome extraction dll
 - `build/payloads/implant.exe` - implant served by the `/implant` endpoint
 
