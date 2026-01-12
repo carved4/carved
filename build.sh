@@ -53,8 +53,8 @@ cd ../..
 
 echo "[*] building server..."
 cd server/cmd
-GOOS=darwin GOARCH=amd64 go build -buildvcs=false -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY} -X main.DownloadKey=${DOWNLOAD_KEY}" -trimpath -o ../../build/server_mac
-GOOS=linux GOARCH=amd64 go build -buildvcs=false -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY} -X main.DownloadKey=${DOWNLOAD_KEY}" -trimpath -o ../../build/server
+GOOS=darwin GOARCH=amd64 go1.24.11 build -buildvcs=false -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY} -X main.DownloadKey=${DOWNLOAD_KEY}" -trimpath -o ../../build/server_mac
+GOOS=linux GOARCH=amd64 go1.24.11 build -buildvcs=false -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY} -X main.DownloadKey=${DOWNLOAD_KEY}" -trimpath -o ../../build/server
 GOOS=windows GOARCH=amd64 go build -buildvcs=false -ldflags="-s -w -X main.EncryptionKey=${ENCRYPTION_KEY} -X main.DownloadKey=${DOWNLOAD_KEY}" -trimpath -o ../../build/server.exe
 cd ../..
 

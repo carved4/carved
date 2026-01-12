@@ -1943,7 +1943,7 @@ async function loadScreenshots() {
   const grid = document.getElementById('screenshotGrid');
 
   if (screenshots.length === 0) {
-    grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">--</div>no screenshots yet</div>';
+    grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">--</div><div>no screenshots yet</div></div>';
     return;
   }
 

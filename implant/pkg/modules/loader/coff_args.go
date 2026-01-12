@@ -8,10 +8,10 @@ import (
 )
 
 type DataParser struct {
-	original	uintptr
-	buffer		uintptr
-	length		uint32
-	size		uint32
+	original uintptr
+	buffer   uintptr
+	length   uint32
+	size     uint32
 }
 
 func PackArgs(data []string) ([]byte, error) {
@@ -125,4 +125,3 @@ func packWideString(s string) ([]byte, error) {
 	result = append(result, buf...)
 	return result, nil
 }
-

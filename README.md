@@ -320,11 +320,10 @@ pe loader additionally:
 
 **chrome extraction:**
 - scans chrome processes for open file handles to Cookies, Login Data, Web Data
-- duplicates handles to read locked sqlite databases
-- injects gobound.dll into chrome process
-- gobound.dll uses Chrome's IElevator COM interface to decrypt the app-bound encryption key
-- master key returned via named pipe
-- decrypts v20 encrypted values using AES-GCM
+- duplicates handles to retrieve raw database content from memory
+- injects gobound.dll into chrome process to recover master key via IElevator COM
+- uploads raw database files and master key to server
+- server-side decryption and parsing (removes local sqlite dependency, smaller implant)
 
 ### shellcode execution methods
 

