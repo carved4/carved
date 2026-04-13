@@ -5,6 +5,7 @@ go 1.24.11
 require (
 	github.com/Velocidex/ordereddict v0.0.0-20250821063524-02dc06e46238
 	github.com/carved4/go-wincall v1.2.7
+	github.com/carved4/net v0.0.4
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/google/uuid v1.6.0
 	modernc.org/sqlite v1.42.2

