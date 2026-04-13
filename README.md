@@ -38,7 +38,7 @@ a command & control framework written in go. featuring full BOF loader support t
 │ stager_nim 135KB    │    │                     │    │  - trustedSec SA-BOF    │
 │ stager_rust 246KB   │    │                     │    │  - custom BOFs          │
 │                     │    │                     │    │                         │
-│ - winhttp download  │    │                     │    │                         │
+│ - AFD.sy  download  │    │                     │    │                         │
 │ - in-memory PE map  │    │                     │    │                         │
 │ - NT API execution  │    │                     │    │                         │
 │ - no console window │    │                     │    │                         │
@@ -53,7 +53,7 @@ a command & control framework written in go. featuring full BOF loader support t
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
 │  │                          transport Layer                                   │  │
 │  │  - AES-256-GCM encrypted communications (all C2 traffic)                   │  │
-│  │  - WinHTTP via manual API resolution (no static imports)                   │  │
+│  │  - AFD.sys via manual API resolution (no static imports)                   │  │
 │  │  - Registration & beacon loop with configurable sleep/jitter               │  │
 │  └────────────────────────────────────────────────────────────────────────────┘  │
 │                                      │                                           │
@@ -256,11 +256,10 @@ the encryption key is set via the build.sh script and generated with openssl
 
 **http layer:**
 
-WinHTTP apis resolved manually (no static imports):
-- `WinHttpOpen`, `WinHttpConnect`, `WinHttpOpenRequest`
-- `WinHttpSendRequest`, `WinHttpReceiveResponse`, `WinHttpReadData`
-- supports http and https (via WINHTTP_FLAG_SECURE)
-- random user agent generated at compile time (unique per build)
+- communicates directly with afd.sys (windows' core networking driver) via ntdll!NtDeviceIOControlFile & IOCTLs
+- network traffic cannot be viewed by any solution running in userspace
+- no winhttp or winsock dlls loaded
+- no go networking code at all
 
 ### bof loader
 
@@ -278,7 +277,7 @@ the bof loader uses `syscall.NewCallback` from Go's standard library to create W
 ### stagers
 
 the stagers are tiny stage1 loaders available in multiple languages (C, Zig, Nim, Rust) that all:
-1. download `implant.exe` from the `/implant` endpoint using WinHTTP
+1. download `implant.exe` from the `/implant` endpoint
 2. map the PE into memory manually (parse headers, copy sections, process relocations, resolve imports)
 3. set proper memory protections per section
 4. execute the entry point via `NtCreateThreadEx`
@@ -456,7 +455,7 @@ carved/
 │       │   ├── registry.go     # handler registration
 │       │   └── types.go        # task types
 │       ├── transport/
-│       │   ├── http.go         # WinHTTP transport
+│       │   ├── http.go         # transport
 │       │   └── types.go        # transport interfaces
 │       └── modules/
 │           ├── loader/
